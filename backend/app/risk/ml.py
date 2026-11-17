@@ -94,7 +94,10 @@ class Model:
             sv = self.explainer.shap_values(self._row(feats))
         sv = sv[1] if isinstance(sv, list) else sv
         vals = np.asarray(sv).reshape(-1)[: len(self.features)]
-        order = np.argsort(-np.abs(vals))[:k]
+        # Show only factors that were actually measured: "missing value" is not a clinical reason.
+        measured = [i for i in np.argsort(-np.abs(vals)) if feats.get(self.features[i]) == feats.get(self.features[i])
+                     and feats.get(self.features[i]) is not None]
+        order = measured[:k]
         return [
             {
                 "feature": self.features[i],
