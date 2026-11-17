@@ -3,13 +3,18 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.api.deps import audit
-from app.api.tenancy import Tenant, staff
 from app.api.patients import risk_out
+from app.api.tenancy import Tenant, staff
 from app.models import Visit
 from app.risk.features import gest_weeks
 from app.schemas import RiskOut, VisitCreatedOut, VisitIn
 from app.services.alerts import alert_out
-from app.services.scoring import apply_assessment, create_alert_if_worse, score_new_visit, store_assessment
+from app.services.scoring import (
+    apply_assessment,
+    create_alert_if_worse,
+    score_new_visit,
+    store_assessment,
+)
 
 router = APIRouter(prefix="/api", tags=["visits"])
 

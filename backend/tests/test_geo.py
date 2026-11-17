@@ -4,7 +4,13 @@ import pytest
 
 from app.db import SessionLocal
 from app.models import Patient
-from app.services.geo import OutsideMahalla, decrypt_home, is_inside, sample_points, validate_home
+from app.services.geo import (
+    OutsideMahalla,
+    decrypt_home,
+    is_inside,
+    sample_points,
+    validate_home,
+)
 
 SQUARE = {"type": "Polygon", "coordinates": [[[59.60, 42.45], [59.62, 42.45], [59.62, 42.47], [59.60, 42.47], [59.60, 42.45]]]}
 

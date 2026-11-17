@@ -37,7 +37,7 @@ def sample_points(boundary_geojson: dict, n: int, rng: np.random.Generator, inse
     out: list[tuple[float, float]] = []
     while len(out) < n:
         xs, ys = rng.uniform(minx, maxx, n * 3), rng.uniform(miny, maxy, n * 3)
-        for x, y in zip(xs, ys):
+        for x, y in zip(xs, ys, strict=True):
             if p.contains(Point(x, y)):
                 out.append((round(float(y), 6), round(float(x), 6)))
                 if len(out) == n:

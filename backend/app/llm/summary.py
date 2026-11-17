@@ -1,4 +1,4 @@
-"""AI clinical summary ("AI xulosa"): de-identified input -> Claude -> validated JSON, with a template fallback.
+"""AI clinical summary ("AI xulosa"): de-identified input -> Google Gemini -> validated JSON, with a template fallback.
 
 Privacy: the LLM never receives name, PINFL, phone, address/mahalla or free-text notes —
 only the pseudonymous patient code and clinical features (see build_llm_input + its test).
@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 from pydantic import BaseModel, Field
 
@@ -135,27 +135,71 @@ def template_summary(payload: dict) -> dict:
     return _finalize(out, payload, "template", None)
 
 
-def call_claude(payload: dict) -> tuple[dict, int | None, int | None]:
-    """Call Claude with JSON-only structured output. Raises on any failure (caller falls back)."""
-    import anthropic
+JSON_ONLY_HINT = """
+Javobni FAQAT bitta JSON obyekt sifatida qaytaring (markdown, ``` belgilari va izohsiz), quyidagi sxema bo'yicha:
+{"summary_uz": "...", "key_concerns": [{"code": "...", "text_uz": "..."}],
+ "recommended_action_codes": ["A01"], "questions_to_ask_patient_uz": ["..."]}
+"""
+
+
+def _user_content(payload: dict) -> str:
+    return "Bemor ma'lumotlari (JSON):\n" + json.dumps(payload, ensure_ascii=False, default=str)
+
+
+def _parse_json_text(text: str | None) -> LlmOutput:
+    """Validate model text as LlmOutput; tolerates a ```json fence in the plain-prompt retry."""
+    if not text:
+        raise ValueError("empty LLM response")
+    t = text.strip()
+    if t.startswith("```"):
+        t = t.strip("`").removeprefix("json").strip()
+    return LlmOutput.model_validate_json(t)
+
+
+def _gemini_client():
+    from google import genai
+    from google.genai import types
 
     s = get_settings()
-    client = anthropic.Anthropic(api_key=s.anthropic_api_key, timeout=s.llm_timeout_s, max_retries=0)
-    resp = client.beta.messages.parse(
-        model=s.llm_model,
-        max_tokens=4000,
-        betas=["server-side-fallback-2026-07-01"],
-        fallbacks="default",  # on a policy refusal the API retries on a fallback model in the same call
-        output_config={"effort": "low"},
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": "Bemor ma'lumotlari (JSON):\n" + json.dumps(payload, ensure_ascii=False, default=str)}],
-        output_format=LlmOutput,
-    )
-    if resp.stop_reason == "refusal" or resp.parsed_output is None:
-        raise RuntimeError(f"LLM returned no usable output (stop_reason={resp.stop_reason})")
-    usage = resp.usage
-    log.info("llm summary tokens: in=%s out=%s model=%s", usage.input_tokens, usage.output_tokens, resp.model)
-    return _finalize(resp.parsed_output, payload, "ai", resp.model), usage.input_tokens, usage.output_tokens
+    # timeout is in milliseconds; attempts=1 -> no SDK-level retries (we do exactly one retry ourselves).
+    opts = types.HttpOptions(timeout=int(s.llm_timeout_s * 1000), retry_options=types.HttpRetryOptions(attempts=1))
+    return genai.Client(api_key=s.gemini_api_key, http_options=opts)
+
+
+def _usage(resp) -> tuple[int | None, int | None]:
+    u = getattr(resp, "usage_metadata", None)
+    return (getattr(u, "prompt_token_count", None), getattr(u, "candidates_token_count", None)) if u else (None, None)
+
+
+def call_gemini(payload: dict) -> tuple[dict, int | None, int | None]:
+    """Call Gemini with structured JSON output; on failure retry once with a plain JSON-only prompt.
+
+    Raises if both attempts fail (caller falls back to the template).
+    """
+    from google.genai import types
+
+    s = get_settings()
+    client = _gemini_client()
+    try:
+        resp = client.models.generate_content(
+            model=s.gemini_model,
+            contents=_user_content(payload),
+            config=types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT, response_mime_type="application/json",
+                                               response_schema=LlmOutput, temperature=0.2),
+        )
+        out = resp.parsed if isinstance(resp.parsed, LlmOutput) else _parse_json_text(resp.text)
+    except Exception as first:  # noqa: BLE001 - documented single retry without response_schema
+        log.warning("Gemini structured call failed (%s), retrying with plain JSON prompt", type(first).__name__)
+        resp = client.models.generate_content(
+            model=s.gemini_model,
+            contents=_user_content(payload),
+            config=types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT + JSON_ONLY_HINT, temperature=0.2),
+        )
+        out = _parse_json_text(resp.text)
+    tin, tout = _usage(resp)
+    model = getattr(resp, "model_version", None) or s.gemini_model
+    log.info("llm summary tokens: in=%s out=%s model=%s", tin, tout, model)
+    return _finalize(out, payload, "ai", model), tin, tout
 
 
 # In-process status of the most recent real LLM call (for GET /api/llm/health). Never holds payloads.
@@ -168,17 +212,24 @@ def llm_status() -> dict:
 
 
 def _record_call(ok: bool, error: Exception | None = None, model: str | None = None) -> None:
-    _STATUS["last_call_at"] = datetime.now(timezone.utc)
+    _STATUS["last_call_at"] = datetime.now(UTC)
     _STATUS["last_call_ok"] = ok
     _STATUS["last_model"] = model
-    _STATUS["last_error"] = None if error is None else f"{type(error).__name__}: {error}"[:_ERROR_MAX_CHARS]
+    if error is None:
+        _STATUS["last_error"] = None
+        return
+    msg = f"{type(error).__name__}: {error}"
+    key = getattr(get_settings(), "gemini_api_key", "")
+    if key:
+        msg = msg.replace(key, "***")  # defence in depth: the key must never reach /api/llm/health
+    _STATUS["last_error"] = msg[:_ERROR_MAX_CHARS]
 
 
 def generate_summary(payload: dict) -> tuple[dict, int | None, int | None]:
-    if not get_settings().anthropic_api_key:
+    if not get_settings().llm_enabled:
         return template_summary(payload), None, None
     try:
-        result = call_claude(payload)
+        result = call_gemini(payload)
     except Exception as e:  # noqa: BLE001 - any failure (timeout, invalid JSON, auth) -> template, demo never fails
         log.warning("LLM call failed, using template fallback: %s", type(e).__name__)
         _record_call(False, e)

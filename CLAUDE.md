@@ -42,8 +42,10 @@ next level → everything is logged.
   (SQLite allowed via `DATABASE_URL` for local tests), JWT auth (python-jose), passlib[bcrypt],
   cryptography (Fernet) for field encryption, APScheduler for SLA escalation.
 - ML: pandas, numpy, scikit-learn, LightGBM, SHAP, joblib. Model artifacts in `backend/ml/artifacts/`.
-- LLM: Anthropic Python SDK, model from env `LLM_MODEL` (default `claude-sonnet-5-5`),
-  key from env `ANTHROPIC_API_KEY`. Template fallback when the key is missing or the call fails.
+- LLM: Google Gemini via the official `google-genai` SDK. Env: `LLM_PROVIDER=gemini`, `GEMINI_API_KEY`,
+  `GEMINI_MODEL` (default `gemini-3.8-flash`), `LLM_TIMEOUT_S` (default 25). Structured JSON output, one
+  plain-JSON retry, then the template fallback ("Shablon") when the key is missing or both calls fail.
+  Only the de-identified allow-list payload is sent. Real patient data requires a PAID Gemini API tier.
 - Telegram: aiogram 3, runs as a separate service, polling mode.
 - Frontend: React 18 + TypeScript + Vite, Tailwind CSS, shadcn/ui, TanStack Query, React Router,
   Recharts, react-leaflet (OpenStreetMap tiles), i18next (uz-Latn default, ru optional).

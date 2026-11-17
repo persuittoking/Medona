@@ -47,9 +47,10 @@ def llm_health(_: User = Depends(require_admin)) -> dict:
     st = llm_status()
     last_call = None if st["last_call_ok"] is None else ("ok" if st["last_call_ok"] else "failed")
     return {
-        "key_present": bool(s.anthropic_api_key),
-        "mode": "ai" if s.anthropic_api_key else "template",
-        "configured_model": s.llm_model,
+        "provider": s.llm_provider,
+        "key_present": bool(s.gemini_api_key),
+        "mode": "ai" if s.llm_enabled else "template",
+        "configured_model": s.gemini_model,
         "last_call": last_call,
         "last_call_at": st["last_call_at"],
         "last_model": st["last_model"],

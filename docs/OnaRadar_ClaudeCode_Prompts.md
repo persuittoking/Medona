@@ -388,7 +388,7 @@ Read CLAUDE.md. Phase 7: the LLM clinical summary in backend/app/llm/.
   risk_assessment_id; log the token use.
 - FALLBACK: if there's no key, or a timeout or invalid JSON → a deterministic template summary built from
   rule_hits/trend_hits/shap_top + a rule→action mapping table. The UI shows a small tag
-  "AI (Claude)" or "Shablon" so we are honest about which was used.
+  "AI (Gemini)" or "Shablon" so we are honest about which was used.
 - Endpoint GET /api/llm/summary/{pregnancy_id}; the frontend panel on the patient card with a
   "Qayta yaratish" button.
 

@@ -15,7 +15,9 @@ def test_health(client):
 
 
 def test_login_needs_right_polyclinic_and_password(client):
-    post = lambda body: client.post("/api/auth/login", json={"password": "demo1234", **body}).status_code  # noqa: E731
+    def post(body: dict) -> int:
+        return client.post("/api/auth/login", json={"password": "demo1234", **body}).status_code
+
     assert post({"polyclinic_code": NUK, "username": "nurse"}) == 200
     assert post({"polyclinic_code": "pl-nuk-001", "username": "NURSE"}) == 200  # case-insensitive
     assert post({"polyclinic_code": "PL-XXX-999", "username": "nurse"}) == 401

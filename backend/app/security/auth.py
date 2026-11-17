@@ -1,5 +1,5 @@
 """Password hashing (bcrypt) and JWT tokens."""
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import bcrypt
 from jose import JWTError, jwt
@@ -22,7 +22,7 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 def create_token(user_id: int, role: str) -> str:
     s = get_settings()
-    exp = datetime.now(timezone.utc) + timedelta(minutes=s.jwt_expire_minutes)
+    exp = datetime.now(UTC) + timedelta(minutes=s.jwt_expire_minutes)
     return jwt.encode({"sub": str(user_id), "role": role, "exp": exp}, s.jwt_secret, algorithm=ALGORITHM)
 
 

@@ -8,11 +8,11 @@ if not exist .venv\Scripts\python.exe (
   echo [OnaRadar] Creating virtual environment...
   python -m venv .venv || goto :error
   .venv\Scripts\python -m pip install --upgrade pip
-  .venv\Scripts\pip install -r requirements.txt || goto :error
+  .venv\Scripts\python -m pip install -r requirements-dev.txt || goto :error
 )
 if not exist .env (
-  echo [OnaRadar] backend\.env not found - copy backend\.env.example to backend\.env and fill in JWT_SECRET and FERNET_KEY.
-  goto :error
+  echo [OnaRadar] Creating backend\.env with fresh secrets ^(add GEMINI_API_KEY for the AI summary^)...
+  .venv\Scripts\python -m app.make_env || goto :error
 )
 if not exist ml\artifacts\model.joblib (
   echo [OnaRadar] Training the ML model ^(first run, ~1 min^)...

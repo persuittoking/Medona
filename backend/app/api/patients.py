@@ -6,14 +6,13 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import audit
 from app.api.tenancy import Tenant, staff
-from app.db import get_db
 from app.models import Alert, Patient, Pregnancy, RiskAssessment, User, Visit
-from app.services.geo import decrypt_home
 from app.risk import thresholds as T
 from app.risk.features import bmi, gest_weeks
 from app.schemas import PatientDetail, PatientRow, PiiOut
 from app.security.crypto import decrypt, mask_name, mask_phone, mask_pinfl
 from app.services.alerts import alert_out
+from app.services.geo import decrypt_home
 from app.services.scoring import preg_dict
 
 router = APIRouter(prefix="/api/patients", tags=["patients"])
@@ -109,7 +108,7 @@ def patient_detail(patient_id: int, request: Request, t: Tenant = Depends(staff(
         "age": _age(pat.birth_date), "district_name": pat.polyclinic.district.name,
         "region_name": pat.polyclinic.district.region.name, "polyclinic_name": pat.polyclinic.name,
         "mahalla": pat.mahalla.name, "mahalla_id": pat.mahalla_id,
-        "home": dict(zip(("lat", "lon"), decrypt_home(pat.home_enc))),
+        "home": dict(zip(("lat", "lon"), decrypt_home(pat.home_enc), strict=True)),
         "distance_to_perinatal_km": pat.distance_to_perinatal_km,
         "nurse": nurse.full_name if nurse else None,
         "pregnancy": {

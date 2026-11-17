@@ -5,7 +5,15 @@ Hard clinical rules always apply; the ML model can only RAISE the zone, never lo
 from app.risk import thresholds as T
 from app.risk.features import build_features
 from app.risk.ml import Model, load_model
-from app.risk.rules import FACTOR, ZONE_ORDER, combine_factors, max_zone, red_rules, visit_notes, yellow_rules
+from app.risk.rules import (
+    FACTOR,
+    ZONE_ORDER,
+    combine_factors,
+    max_zone,
+    red_rules,
+    visit_notes,
+    yellow_rules,
+)
 from app.risk.trends import trend_hits, trend_zone
 
 ZONE_UZ = {"red": "QIZIL", "yellow": "SARIQ", "green": "YASHIL"}

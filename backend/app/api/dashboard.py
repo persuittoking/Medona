@@ -10,7 +10,16 @@ from app.api.deps import current_user, require_admin
 from app.api.tenancy import Tenant, staff
 from app.config import BACKEND_DIR
 from app.db import get_db
-from app.models import Alert, AuditLog, Patient, Polyclinic, Pregnancy, RiskAssessment, User, utcnow
+from app.models import (
+    Alert,
+    AuditLog,
+    Patient,
+    Polyclinic,
+    Pregnancy,
+    RiskAssessment,
+    User,
+    utcnow,
+)
 from app.risk.features import gest_weeks
 from app.security.crypto import decrypt, mask_name
 

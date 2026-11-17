@@ -20,7 +20,7 @@ def escalation_job() -> int:
         if n:
             log.info("escalated %d alert(s)", n)
         return n
-    except Exception:  # noqa: BLE001
+    except Exception:
         log.exception("escalation job failed")
         return 0
 

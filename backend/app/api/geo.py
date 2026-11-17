@@ -13,7 +13,16 @@ from sqlalchemy.orm import Session
 from app.api.deps import audit, require_admin
 from app.api.tenancy import Tenant, staff
 from app.db import get_db
-from app.models import Alert, District, Mahalla, Patient, Polyclinic, Pregnancy, Region, User
+from app.models import (
+    Alert,
+    District,
+    Mahalla,
+    Patient,
+    Polyclinic,
+    Pregnancy,
+    Region,
+    User,
+)
 from app.services.geo import decrypt_home
 
 router = APIRouter(prefix="/api", tags=["geo"])

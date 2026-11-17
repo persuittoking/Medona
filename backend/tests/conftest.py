@@ -7,15 +7,15 @@ sys.path.insert(0, str(BACKEND))
 
 # Tests use their own SQLite file and never need real secrets.
 os.environ["DATABASE_URL"] = "sqlite:///./test_onaradar.db"
-os.environ["ANTHROPIC_API_KEY"] = ""
+os.environ["GEMINI_API_KEY"] = ""  # env beats backend/.env: tests never call the real API
 os.environ.setdefault("FERNET_KEY", "x" * 43 + "=")  # replaced below with a valid key
 
-from cryptography.fernet import Fernet  # noqa: E402
+from cryptography.fernet import Fernet
 
 os.environ["FERNET_KEY"] = Fernet.generate_key().decode()
 os.environ["JWT_SECRET"] = "test-secret"
 
-import pytest  # noqa: E402
+import pytest
 
 NUK, CHL, FRG = "PL-NUK-001", "PL-CHL-001", "PL-FRG-001"
 

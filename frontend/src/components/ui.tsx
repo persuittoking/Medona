@@ -44,7 +44,7 @@ export function ErrorBox({ error }: { error: unknown }) {
 
 export function SourceTag({ source }: { source: "ai" | "template" }) {
   return source === "ai" ? (
-    <span className="rounded bg-violet-100 px-1.5 py-0.5 text-xs font-semibold text-violet-800">AI (Claude)</span>
+    <span className="rounded bg-violet-100 px-1.5 py-0.5 text-xs font-semibold text-violet-800">AI (Gemini)</span>
   ) : (
     <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-semibold text-slate-700">Shablon</span>
   );

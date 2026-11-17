@@ -36,7 +36,7 @@ def overpass(query: str) -> dict:
     import time
 
     last: Exception | None = None
-    for attempt in range(8):
+    for _attempt in range(8):
         for url in ENDPOINTS:
             try:
                 r = httpx.post(url, data={"data": query}, timeout=120 if "mail.ru" in url else 30)

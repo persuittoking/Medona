@@ -24,7 +24,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT.parent))
 
-from app.risk.features import FEATURES  # noqa: E402
+from app.risk.features import FEATURES  # noqa: E402 - after sys.path setup
 
 ART = ROOT / "artifacts"
 DATA = ROOT / "data" / "synthetic_pregnancies.csv.gz"
@@ -38,8 +38,10 @@ PARAMS = dict(n_estimators=400, learning_rate=0.04, num_leaves=31, min_child_sam
 
 
 def _sens_spec(y: np.ndarray, flag: np.ndarray) -> dict:
-    tp = int((flag & (y == 1)).sum()); fn = int((~flag & (y == 1)).sum())
-    tn = int((~flag & (y == 0)).sum()); fp = int((flag & (y == 0)).sum())
+    tp = int((flag & (y == 1)).sum())
+    fn = int((~flag & (y == 1)).sum())
+    tn = int((~flag & (y == 0)).sum())
+    fp = int((flag & (y == 0)).sum())
     return {"sensitivity": round(tp / max(tp + fn, 1), 4), "specificity": round(tn / max(tn + fp, 1), 4),
             "precision": round(tp / max(tp + fp, 1), 4), "flag_rate": round(float(flag.mean()), 4),
             "confusion": {"tp": tp, "fp": fp, "tn": tn, "fn": fn}}
@@ -52,7 +54,7 @@ def pregnancy_sensitivity(y: np.ndarray, flag: np.ndarray, groups: np.ndarray, g
     late = gw >= LATE_WEEKS
     d = pd.DataFrame({"g": groups[late], "y": y[late], "f": flag[late]}).groupby("g").agg(y=("y", "first"), f=("f", "max"))
     return {"sensitivity": round(float(d.f[d.y == 1].mean()), 4), "flag_rate": round(float(d.f.mean()), 4),
-            "n_pregnancies": int(len(d)), "from_weeks": LATE_WEEKS}
+            "n_pregnancies": len(d), "from_weeks": LATE_WEEKS}
 
 
 def choose_thresholds(y: np.ndarray, p: np.ndarray, rule_flag: np.ndarray, groups: np.ndarray,
@@ -75,7 +77,7 @@ def write_thresholds(yellow: float, red: float, note: str) -> None:
     src = THRESH_PY.read_text(encoding="utf-8")
     block = (f"# BEGIN ML THRESHOLDS (auto-written by backend/ml/train.py — do not edit by hand)\n"
              f"ML_YELLOW = {yellow}\nML_RED = {red}\nML_THRESHOLDS_NOTE = {note!r}\n# END ML THRESHOLDS")
-    src = re.sub(r"# BEGIN ML THRESHOLDS.*?# END ML THRESHOLDS", block, src, flags=re.S)
+    src = re.sub(r"# BEGIN ML THRESHOLDS.*?# END ML THRESHOLDS", block, src, flags=re.DOTALL)
     THRESH_PY.write_text(src, encoding="utf-8")
 
 
@@ -122,7 +124,8 @@ def main() -> None:
     model = LGBMClassifier(**PARAMS, random_state=a.seed).fit(X.iloc[tr], y[tr])
     iso = IsotonicRegression(out_of_bounds="clip", y_min=0, y_max=1)
     iso.fit(model.predict_proba(X.iloc[cal])[:, 1], y[cal])
-    predict = lambda idx: iso.predict(model.predict_proba(X.iloc[idx])[:, 1])  # noqa: E731
+    def predict(idx):
+        return iso.predict(model.predict_proba(X.iloc[idx])[:, 1])
 
     p_cal, p_te = predict(cal), predict(te)
     gw_all = X["gest_weeks"].to_numpy()
@@ -150,14 +153,14 @@ def main() -> None:
     sample = X.iloc[te].sample(min(3000, len(te)), random_state=a.seed)
     sv = shap.TreeExplainer(model).shap_values(sample)
     sv = sv[1] if isinstance(sv, list) else sv
-    imp = sorted(zip(FEATURES, np.abs(sv).mean(axis=0)), key=lambda t: -t[1])[:15]
+    imp = sorted(zip(FEATURES, np.abs(sv).mean(axis=0), strict=True), key=lambda t: -t[1])[:15]
 
     version = hashlib.sha1(json.dumps([FEATURES, PARAMS, a.seed, len(df)], sort_keys=True).encode()).hexdigest()[:10]
     from app.risk.ml import FEATURE_LABELS
 
     metrics = {
         "model_version": version, "trained_on": str(date.today()), "data": "SYNTHETIC (demo) — retrain on real DMED data",
-        "n_pregnancies": int(df["pregnancy_id"].nunique()), "n_rows": int(len(df)),
+        "n_pregnancies": int(df["pregnancy_id"].nunique()), "n_rows": len(df),
         "outcome_rate": round(float(df.groupby("pregnancy_id")["adverse_outcome"].first().mean()), 4),
         "split": {"train_rows": len(tr), "calibration_rows": len(cal), "test_rows": len(te), "by": "pregnancy"},
         "cv_roc_auc": {"folds": [round(x, 4) for x in cv_auc], "mean": round(float(np.mean(cv_auc)), 4)},

@@ -16,15 +16,33 @@ import numpy as np
 from app.db import Base, SessionLocal, engine
 from app.geo import POLYCLINICS, REGIONS, haversine_km
 from app.models import (
-    Alert, AuditLog, District, Mahalla, Newborn, NewbornCheck, Patient, Polyclinic, Pregnancy, Region,
-    RiskAssessment, User, Visit, utcnow,
+    Alert,
+    AuditLog,
+    District,
+    Mahalla,
+    Newborn,
+    NewbornCheck,
+    Patient,
+    Polyclinic,
+    Pregnancy,
+    Region,
+    RiskAssessment,
+    User,
+    Visit,
+    utcnow,
 )
 from app.risk.engine import score_pregnancy
 from app.risk.newborn import newborn_hits, newborn_zone
 from app.security.auth import hash_password
 from app.security.crypto import encrypt
 from app.services.geo import encrypt_home, sample_points, validate_home
-from app.services.scoring import apply_assessment, create_alert_if_worse, preg_dict, store_assessment, visit_dict
+from app.services.scoring import (
+    apply_assessment,
+    create_alert_if_worse,
+    preg_dict,
+    store_assessment,
+    visit_dict,
+)
 from ml.generate_synthetic import make_pregnancy, make_visits
 from seed.fetch_mahallas import as_shape
 from seed.fetch_mahallas import load as load_boundary

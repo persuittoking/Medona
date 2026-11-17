@@ -36,4 +36,4 @@ def health() -> dict:
     s = get_settings()
     mdl = load_model()
     return {"status": "ok", "demo_mode": s.demo_mode, "model_version": mdl.version if mdl else None,
-            "llm": "ai" if s.anthropic_api_key else "template"}
+            "llm": "ai" if s.llm_enabled else "template", "llm_provider": s.llm_provider}

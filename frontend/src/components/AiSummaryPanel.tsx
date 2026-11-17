@@ -28,7 +28,13 @@ export function AiSummaryPanel({ pregnancyId }: { pregnancyId: number }) {
           {refreshing ? "Yaratilmoqda…" : "Qayta yaratish"}
         </button>
       </div>
-      {q.error ? <ErrorBox error={q.error} /> : !s || refreshing ? <Skeleton className="h-40" /> : (
+      {/* While refetching (e.g. right after a new visit) never show the previous assessment's summary. */}
+      {q.error ? <ErrorBox error={q.error} /> : !s || refreshing || q.isFetching ? (
+        <div className="space-y-2">
+          <p className="text-xs text-slate-500">AI xulosa tayyorlanmoqda… (bir necha soniya)</p>
+          <Skeleton className="h-40" />
+        </div>
+      ) : (
         <div className="space-y-3 text-sm">
           <p className="leading-relaxed">{s.summary_uz}</p>
           {s.key_concerns.length > 0 && (

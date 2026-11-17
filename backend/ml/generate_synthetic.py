@@ -30,7 +30,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.geo import REGIONS, haversine_km  # noqa: E402
+from app.geo import REGIONS, haversine_km
 
 FIRST_NAMES = [
     "Dilnoza", "Malika", "Gulnora", "Shahnoza", "Nilufar", "Madina", "Zarina", "Sevara", "Feruza",
@@ -173,7 +173,8 @@ def schedule(rng: np.random.Generator, booking_w: float, upto_w: float, max_visi
 
 
 def make_visit(rng: np.random.Generator, preg: dict, lat: Latent, w: float, prev_weight: float | None) -> dict:
-    after = lambda onset: max(0.0, w - onset) if onset is not None else 0.0  # noqa: E731
+    def after(onset: float | None) -> float:
+        return max(0.0, w - onset) if onset is not None else 0.0
     pe = after(lat.pe_onset)
     sys_ = lat.base_sys + 0.12 * max(0, w - 24) + lat.pe_rate * pe + rng.normal(0, 5)
     dia = lat.base_dia + 0.08 * max(0, w - 24) + 0.65 * lat.pe_rate * pe + rng.normal(0, 4)
@@ -289,7 +290,7 @@ def generate_training(n: int = 20000, seed: int = 42, target_rate: float = 0.10)
     labels = rng.random(n) < 1 / (1 + np.exp(-(logits_a + lo)))
 
     rows = []
-    for (pid, rcode, preg, visits), y in zip(records, labels):
+    for (pid, rcode, preg, visits), y in zip(records, labels, strict=True):
         for k in range(len(visits)):
             hist = visits[: k + 1]
             prev = visits[k - 1] if k else None
