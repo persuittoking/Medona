@@ -162,3 +162,15 @@ def test_dashboard_endpoints(client):
     assert client.get("/api/analytics/model", headers=h).status_code == 200
     logs = client.get("/api/audit", headers=h).json()
     assert any(row["action"] == "login" for row in logs)
+
+
+def test_llm_summary_endpoint_template_and_cache(client):
+    _, preg = demo("QQR-NUK-DEMO2")
+    h = login(client, "specialist.nukus")
+    r1 = client.get(f"/api/llm/summary/{preg}", headers=h)
+    assert r1.status_code == 200, r1.text
+    body = r1.json()
+    assert body["source"] == "template" and body["summary_uz"] and body["disclaimer_uz"]
+    r2 = client.get(f"/api/llm/summary/{preg}", headers=h).json()
+    assert r2["generated_at"] == body["generated_at"]  # served from cache
+    assert client.get(f"/api/llm/summary/{preg}", headers=login(client, "specialist.chilonzor")).status_code == 403
