@@ -163,7 +163,13 @@ export interface TopRow {
   main_reason: string | null;
 }
 
+export interface AiSummaryPending {
+  status: "pending";
+  risk_assessment_id: number;
+}
+
 export interface AiSummary {
+  status: "ready";
   source: "ai" | "template";
   model: string | null;
   summary_uz: string;

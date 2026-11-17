@@ -17,11 +17,15 @@ class Settings(BaseSettings):
     fernet_key: str = ""
     llm_provider: str = "gemini"
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-3.8-flash"
-    llm_timeout_s: float = 25.0  # Gemini 3.8 Flash takes ~15 s for this prompt
+    gemini_model: str = "gemini-3.1-flash-lite"
+    gemini_fallback_model: str = ""  # tried when the primary model returns 503/504 or times out
+    llm_timeout_s: float = 25.0  # total budget for all LLM attempts of one summary
+    llm_attempt_timeout_s: float = 10.0  # cap per attempt (Gemini minimum is 10 s): a hung primary leaves time for the fallback
+    llm_prewarm: bool = True  # on startup, pre-generate AI summaries for the DEMO1-DEMO4 patients
     telegram_bot_token: str = ""
     demo_mode: bool = True
     sla_red_minutes: int = 120
+    demo_sla_red_minutes: int = 10  # red SLA in DEMO_MODE; long enough not to escalate mid-pitch
     sla_yellow_hours: int = 72
 
     @field_validator("*", mode="before")
@@ -36,8 +40,8 @@ class Settings(BaseSettings):
 
     @property
     def effective_sla_red_minutes(self) -> int:
-        """In DEMO_MODE the red SLA is 2 minutes so escalation can be shown live."""
-        return 2 if self.demo_mode else self.sla_red_minutes
+        """In DEMO_MODE the red SLA is DEMO_SLA_RED_MINUTES (escalation is then shown via the demo button)."""
+        return self.demo_sla_red_minutes if self.demo_mode else self.sla_red_minutes
 
 
 @lru_cache

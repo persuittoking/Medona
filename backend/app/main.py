@@ -9,7 +9,7 @@ from app.api import alerts, auth, dashboard, geo, llm, patients, visits
 from app.config import get_settings
 from app.db import Base, engine
 from app.risk.ml import load_model
-from app.scheduler import start_scheduler
+from app.scheduler import schedule_prewarm, start_scheduler
 
 log = logging.getLogger("onaradar")
 
@@ -19,6 +19,8 @@ async def lifespan(app_: FastAPI):
     Base.metadata.create_all(engine)
     load_model()  # warm the model + SHAP explainer
     app_.state.scheduler = start_scheduler()  # SLA escalation every 30 s
+    if get_settings().llm_enabled and get_settings().llm_prewarm:
+        schedule_prewarm(app_.state.scheduler)  # DEMO1-DEMO4 AI summaries, in the background
     yield
     app_.state.scheduler.shutdown(wait=False)
 

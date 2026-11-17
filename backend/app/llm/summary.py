@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from datetime import UTC, date, datetime
 
 from pydantic import BaseModel, Field
@@ -161,7 +162,7 @@ def _gemini_client():
     from google.genai import types
 
     s = get_settings()
-    # timeout is in milliseconds; attempts=1 -> no SDK-level retries (we do exactly one retry ourselves).
+    # attempts=1 -> no SDK-level retries: our own attempt chain decides what to try next.
     opts = types.HttpOptions(timeout=int(s.llm_timeout_s * 1000), retry_options=types.HttpRetryOptions(attempts=1))
     return genai.Client(api_key=s.gemini_api_key, http_options=opts)
 
@@ -171,39 +172,105 @@ def _usage(resp) -> tuple[int | None, int | None]:
     return (getattr(u, "prompt_token_count", None), getattr(u, "candidates_token_count", None)) if u else (None, None)
 
 
-def call_gemini(payload: dict) -> tuple[dict, int | None, int | None]:
-    """Call Gemini with structured JSON output; on failure retry once with a plain JSON-only prompt.
+MIN_ATTEMPT_S = 10.0  # Gemini rejects request deadlines < 10 s (400), so never start an attempt with less left
+TRANSIENT_CODES = {429, 500, 502, 503, 504}  # overload / quota / deadline: worth trying the fallback model
 
-    Raises if both attempts fail (caller falls back to the template).
+
+def is_transient(e: Exception) -> bool:
+    """503 "high demand", 504 deadline, 429 quota and timeouts: another model may still answer."""
+    code = getattr(e, "code", None) or getattr(e, "status_code", None)
+    if code in TRANSIENT_CODES:
+        return True
+    return isinstance(e, TimeoutError) or "timeout" in type(e).__name__.lower()
+
+
+def thinking_config(model: str):
+    """Lowest reasoning setting each model family accepts (measured in the task-06 benchmark).
+
+    Gemini 3.x flash-lite accepts "minimal"; 3.x flash rejects it (400) and takes "low"; others: SDK default.
     """
     from google.genai import types
 
+    if model.startswith("gemini-3"):
+        return types.ThinkingConfig(thinking_level="minimal" if "lite" in model else "low")
+    return None
+
+
+def _attempt(client, model: str, mode: str, payload: dict, timeout_s: float):
+    """One generate_content call. mode: "structured" (response_schema) or "plain" (JSON-only prompt)."""
+    from google.genai import types
+
+    http = types.HttpOptions(timeout=int(timeout_s * 1000), retry_options=types.HttpRetryOptions(attempts=1))
+    if mode == "structured":
+        cfg = types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT, response_mime_type="application/json",
+                                          response_schema=LlmOutput, temperature=0.2,
+                                          thinking_config=thinking_config(model), http_options=http)
+    else:
+        cfg = types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT + JSON_ONLY_HINT, temperature=0.2,
+                                          thinking_config=thinking_config(model), http_options=http)
+    resp = client.models.generate_content(model=model, contents=_user_content(payload), config=cfg)
+    parsed = getattr(resp, "parsed", None)
+    return resp, (parsed if isinstance(parsed, LlmOutput) else _parse_json_text(resp.text))
+
+
+def _redact(e: Exception) -> str:
+    msg = f"{type(e).__name__}: {e}"
+    key = getattr(get_settings(), "gemini_api_key", "")
+    if key:
+        msg = msg.replace(key, "***")  # defence in depth: the key must never reach /api/llm/health
+    return " ".join(msg.split())[:_ERROR_MAX_CHARS]
+
+
+def call_gemini(payload: dict, attempts: list[dict] | None = None) -> tuple[dict, int | None, int | None]:
+    """Attempt chain, all inside one LLM_TIMEOUT_S budget (each attempt capped at LLM_ATTEMPT_TIMEOUT_S):
+
+    1. primary model, structured output;
+    2. on 503/504/429/timeout: GEMINI_FALLBACK_MODEL, structured output;
+    3. one plain JSON-only retry (on the last model tried).
+    Raises if every attempt fails (generate_summary then falls back to the template). Each attempt is
+    appended to `attempts` (model, mode, ok, seconds, error) for /api/llm/health.
+    """
     s = get_settings()
+    attempts = attempts if attempts is not None else []
+    deadline = time.monotonic() + s.llm_timeout_s
     client = _gemini_client()
-    try:
-        resp = client.models.generate_content(
-            model=s.gemini_model,
-            contents=_user_content(payload),
-            config=types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT, response_mime_type="application/json",
-                                               response_schema=LlmOutput, temperature=0.2),
-        )
-        out = resp.parsed if isinstance(resp.parsed, LlmOutput) else _parse_json_text(resp.text)
-    except Exception as first:  # noqa: BLE001 - documented single retry without response_schema
-        log.warning("Gemini structured call failed (%s), retrying with plain JSON prompt", type(first).__name__)
-        resp = client.models.generate_content(
-            model=s.gemini_model,
-            contents=_user_content(payload),
-            config=types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT + JSON_ONLY_HINT, temperature=0.2),
-        )
-        out = _parse_json_text(resp.text)
-    tin, tout = _usage(resp)
-    model = getattr(resp, "model_version", None) or s.gemini_model
-    log.info("llm summary tokens: in=%s out=%s model=%s", tin, tout, model)
-    return _finalize(out, payload, "ai", model), tin, tout
+    fallback = s.gemini_fallback_model if s.gemini_fallback_model and s.gemini_fallback_model != s.gemini_model else ""
+
+    plan = [(s.gemini_model, "structured")]
+    last_error: Exception | None = None
+    while plan:
+        model, mode = plan.pop(0)
+        left = deadline - time.monotonic()
+        if left < MIN_ATTEMPT_S:
+            attempts.append({"model": model, "mode": mode, "ok": False, "seconds": 0.0,
+                             "error": "skipped: LLM_TIMEOUT_S budget used up"})
+            break
+        t0 = time.monotonic()
+        try:
+            resp, out = _attempt(client, model, mode, payload, max(MIN_ATTEMPT_S, min(left, s.llm_attempt_timeout_s)))
+        except Exception as e:  # noqa: BLE001 - every failure moves to the next step of the chain
+            last_error = e
+            attempts.append({"model": model, "mode": mode, "ok": False,
+                             "seconds": round(time.monotonic() - t0, 2), "error": _redact(e)})
+            log.warning("Gemini %s/%s failed: %s", model, mode, type(e).__name__)
+            if mode == "structured":
+                if model == s.gemini_model and fallback and is_transient(e):
+                    plan.append((fallback, "structured"))
+                else:
+                    plan.append((model, "plain"))
+            continue
+        attempts.append({"model": model, "mode": mode, "ok": True, "seconds": round(time.monotonic() - t0, 2),
+                         "error": None})
+        tin, tout = _usage(resp)
+        used = getattr(resp, "model_version", None) or model
+        log.info("llm summary tokens: in=%s out=%s model=%s", tin, tout, used)
+        return _finalize(out, payload, "ai", used), tin, tout
+    raise last_error or TimeoutError("LLM_TIMEOUT_S budget used up")
 
 
 # In-process status of the most recent real LLM call (for GET /api/llm/health). Never holds payloads.
-_STATUS: dict = {"last_call_at": None, "last_call_ok": None, "last_error": None, "last_model": None}
+_STATUS: dict = {"last_call_at": None, "last_call_ok": None, "last_error": None, "last_model": None,
+                 "last_attempts": []}
 _ERROR_MAX_CHARS = 300
 
 
@@ -211,28 +278,24 @@ def llm_status() -> dict:
     return dict(_STATUS)
 
 
-def _record_call(ok: bool, error: Exception | None = None, model: str | None = None) -> None:
+def _record_call(ok: bool, error: Exception | None = None, model: str | None = None,
+                 attempts: list[dict] | None = None) -> None:
     _STATUS["last_call_at"] = datetime.now(UTC)
     _STATUS["last_call_ok"] = ok
     _STATUS["last_model"] = model
-    if error is None:
-        _STATUS["last_error"] = None
-        return
-    msg = f"{type(error).__name__}: {error}"
-    key = getattr(get_settings(), "gemini_api_key", "")
-    if key:
-        msg = msg.replace(key, "***")  # defence in depth: the key must never reach /api/llm/health
-    _STATUS["last_error"] = msg[:_ERROR_MAX_CHARS]
+    _STATUS["last_attempts"] = list(attempts or [])
+    _STATUS["last_error"] = None if error is None else _redact(error)
 
 
 def generate_summary(payload: dict) -> tuple[dict, int | None, int | None]:
     if not get_settings().llm_enabled:
         return template_summary(payload), None, None
+    attempts: list[dict] = []
     try:
-        result = call_gemini(payload)
+        result = call_gemini(payload, attempts)
     except Exception as e:  # noqa: BLE001 - any failure (timeout, invalid JSON, auth) -> template, demo never fails
         log.warning("LLM call failed, using template fallback: %s", type(e).__name__)
-        _record_call(False, e)
+        _record_call(False, e, attempts=attempts)
         return template_summary(payload), None, None
-    _record_call(True, model=result[0].get("model"))
+    _record_call(True, model=result[0].get("model"), attempts=attempts)
     return result

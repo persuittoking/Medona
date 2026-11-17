@@ -3,6 +3,7 @@ from sqlalchemy import select
 
 from app.api.deps import audit
 from app.api.tenancy import Tenant, staff
+from app.config import get_settings
 from app.models import Alert, Patient, Pregnancy, utcnow
 from app.schemas import ActionIn, AlertOut
 from app.services.alerts import alert_out
@@ -52,5 +53,22 @@ def resolve_alert(alert_id: int, body: ActionIn, request: Request,
     a.status, a.resolved_at = "resolved", now
     a.action_taken = ((a.action_taken + " | ") if a.action_taken else "") + body.action_taken.strip()
     audit(t.db, t.user, "resolve_alert", "alert", a.id, request)
+    t.db.commit()
+    return alert_out(a, t.db)
+
+
+@router.post("/{alert_id}/demo-expire-sla", response_model=AlertOut)
+def demo_expire_sla(alert_id: int, request: Request, t: Tenant = Depends(staff("specialist"))) -> dict:
+    """DEMO_MODE only: set this alert's SLA deadline to now, so the next escalation run (<=30 s) escalates it.
+
+    Specialist only: admins never see individual alerts (tenancy rule), so they have no row to press it on.
+    """
+    if not get_settings().demo_mode:
+        raise HTTPException(404, "Faqat demo rejimida mavjud")
+    a = t.get_alert(alert_id)
+    if a.status not in ("open", "escalated"):
+        raise HTTPException(409, "Faqat faol ogohlantirish uchun")
+    a.sla_due_at = utcnow()
+    audit(t.db, t.user, "demo_expire_sla", "alert", a.id, request)
     t.db.commit()
     return alert_out(a, t.db)

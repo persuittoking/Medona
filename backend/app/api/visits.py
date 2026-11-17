@@ -1,6 +1,6 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 
 from app.api.deps import audit
 from app.api.patients import risk_out
@@ -8,6 +8,7 @@ from app.api.tenancy import Tenant, staff
 from app.models import Visit
 from app.risk.features import gest_weeks
 from app.schemas import RiskOut, VisitCreatedOut, VisitIn
+from app.services.ai_summary import generate_cached
 from app.services.alerts import alert_out
 from app.services.scoring import (
     apply_assessment,
@@ -36,7 +37,8 @@ def risk_preview(body: VisitIn, t: Tenant = Depends(staff())) -> dict:
 
 
 @router.post("/visits", response_model=VisitCreatedOut, status_code=201)
-def create_visit(body: VisitIn, request: Request, t: Tenant = Depends(staff("nurse", "doctor"))) -> dict:
+def create_visit(body: VisitIn, request: Request, background: BackgroundTasks,
+                 t: Tenant = Depends(staff("nurse", "doctor"))) -> dict:
     db, user = t.db, t.user
     preg = t.get_pregnancy(body.pregnancy_id)
     if preg.status != "active":
@@ -55,5 +57,6 @@ def create_visit(body: VisitIn, request: Request, t: Tenant = Depends(staff("nur
         audit(db, None, "create_alert", "alert", alert.id, request)
     db.commit()
     db.refresh(visit)
+    background.add_task(generate_cached, ra.id)  # AI summary is ready before the specialist opens the card
     return {"visit": visit, "assessment": risk_out(ra), "previous_zone": old_zone,
             "alert": alert_out(alert, db) if alert else None}

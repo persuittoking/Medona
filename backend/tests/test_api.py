@@ -131,6 +131,42 @@ def test_escalation_after_sla(client):
     client.app.state.scheduler.resume()
 
 
+def test_demo_expire_sla_button(client, monkeypatch):
+    from app.api import alerts as alerts_api
+
+    client.app.state.scheduler.pause()
+    _, preg = demo("QQR-NUK-DEMO3")
+    r = client.post("/api/visits", json={"pregnancy_id": preg, "systolic": 166, "diastolic": 112},
+                    headers=login(client, NUK, "nurse")).json()
+    aid = r["alert"]["id"]
+    h = login(client, NUK, "specialist")
+    # only the specialist may press it; admins and other roles are refused
+    for who in (login(client, NUK, "nurse"), login(client, NUK, "doctor"), login(client, None, "region.admin")):
+        assert client.post(f"/api/alerts/{aid}/demo-expire-sla", headers=who).status_code == 403
+    assert client.post(f"/api/alerts/{aid}/demo-expire-sla", headers=login(client, CHL, "specialist")).status_code == 404
+    r = client.post(f"/api/alerts/{aid}/demo-expire-sla", headers=h)
+    assert r.status_code == 200, r.text
+    with SessionLocal() as db:
+        assert db.get(Alert, aid).sla_due_at <= utcnow()
+        assert db.query(AuditLog).filter_by(action="demo_expire_sla", entity_id=aid).count() == 1
+    assert escalation_job() >= 1
+    with SessionLocal() as db:
+        assert db.get(Alert, aid).escalation_level == 1
+    # outside DEMO_MODE the endpoint does not exist
+    real = alerts_api.get_settings()
+    monkeypatch.setattr(alerts_api, "get_settings", lambda: real.model_copy(update={"demo_mode": False}))
+    assert client.post(f"/api/alerts/{aid}/demo-expire-sla", headers=h).status_code == 404
+    client.app.state.scheduler.resume()
+
+
+def test_demo_sla_minutes_setting():
+    from app.config import Settings
+
+    assert Settings(_env_file=None, demo_mode=True).effective_sla_red_minutes == 10
+    assert Settings(_env_file=None, demo_mode=True, demo_sla_red_minutes=7).effective_sla_red_minutes == 7
+    assert Settings(_env_file=None, demo_mode=False).effective_sla_red_minutes == 120
+
+
 def test_escalation_scheduler_started_on_startup(client):
     sched = client.app.state.scheduler
     assert sched.running

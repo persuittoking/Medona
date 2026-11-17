@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import type { Alert } from "../api/types";
 import { Empty, ErrorBox, Skeleton, ZoneBadge } from "../components/ui";
 import { ALERT_STATUS_LABEL } from "../i18n/uz";
+import { useAuth } from "../lib/auth";
 import { useToast } from "../lib/toast";
 import { fmtDateTime, fmtWeeks, parseUtc } from "../lib/format";
 
@@ -41,6 +42,9 @@ export default function Alerts() {
   const now = useNow();
   const qc = useQueryClient();
   const toast = useToast();
+  const { user } = useAuth();
+  const health = useQuery({ queryKey: ["health"], queryFn: () => api<{ demo_mode: boolean }>("/api/health"), staleTime: 300_000 });
+  const demoSla = !!health.data?.demo_mode && user?.role === "specialist";
   const q = useQuery({ queryKey: ["alerts", tab], queryFn: () => api<Alert[]>(`/api/alerts?status=${tab}`), refetchInterval: 15000 });
 
   async function submit() {
@@ -56,6 +60,16 @@ export default function Alerts() {
       toast({ kind: "error", title: "Xatolik", body: e instanceof Error ? e.message : undefined });
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function expireSla(a: Alert) {
+    try {
+      await api(`/api/alerts/${a.id}/demo-expire-sla`, { method: "POST" });
+      toast({ kind: "success", title: "SLA muddati tugatildi", body: "30 soniya ichida eskalatsiya bo'ladi." });
+      qc.invalidateQueries({ queryKey: ["alerts"] });
+    } catch (e) {
+      toast({ kind: "error", title: "Xatolik", body: e instanceof Error ? e.message : undefined });
     }
   }
 
@@ -95,6 +109,12 @@ export default function Alerts() {
                     <>
                       <div className="text-xs text-slate-500">Javob muddati: <Countdown due={a.sla_due_at} now={now} /></div>
                       <button className="btn-primary" onClick={() => setModal({ alert: a, mode: "ack" })}>Qabul qildim</button>
+                      {demoSla && a.escalation_level < 2 && (
+                        <button className="btn-ghost px-2 py-1 text-xs" onClick={() => expireSla(a)}
+                          title="Faqat demo rejimida: keyingi tekshiruvda (≤30 s) eskalatsiya bo'ladi">
+                          Demo: SLA muddatini hozir tugatish
+                        </button>
+                      )}
                     </>
                   )}
                   {a.status === "acknowledged" && <button className="btn-ghost" onClick={() => setModal({ alert: a, mode: "resolve" })}>Yopish</button>}

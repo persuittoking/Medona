@@ -24,10 +24,10 @@ ASSESSMENT = {"zone": "red", "ml_probability": 0.82,
                                               "shap": 0.9, "value": 152}]}
 
 
-def _settings(key: str):
+def _settings(key: str, **kw):
     from app.config import Settings
 
-    return Settings(_env_file=None, gemini_api_key=key, llm_provider="gemini", gemini_model="gemini-test")
+    return Settings(_env_file=None, gemini_api_key=key, llm_provider="gemini", gemini_model="gemini-test", **kw)
 
 
 def payload():
@@ -71,7 +71,7 @@ def test_template_fallback_without_key(monkeypatch):
 def test_fallback_on_llm_failure(monkeypatch, exc):
     monkeypatch.setattr(S, "get_settings", lambda: _settings("fake-test-key"))
 
-    def boom(_):
+    def boom(*_):
         raise exc
 
     monkeypatch.setattr(S, "call_gemini", boom)
@@ -84,7 +84,7 @@ def test_status_records_failure_then_success(monkeypatch):
     monkeypatch.setattr(S, "get_settings", lambda: _settings("fake-test-key"))
     monkeypatch.setattr(S, "_STATUS", dict(S._STATUS))
 
-    def boom(_):
+    def boom(*_):
         raise TimeoutError("read timed out " + "x" * 1000)
 
     monkeypatch.setattr(S, "call_gemini", boom)
@@ -93,7 +93,7 @@ def test_status_records_failure_then_success(monkeypatch):
     assert st["last_call_ok"] is False and st["last_error"].startswith("TimeoutError: read timed out")
     assert len(st["last_error"]) <= 300 and st["last_call_at"] is not None
 
-    monkeypatch.setattr(S, "call_gemini", lambda p: (S.template_summary(p) | {"source": "ai", "model": "m-1"}, 10, 5))
+    monkeypatch.setattr(S, "call_gemini", lambda p, *_: (S.template_summary(p) | {"source": "ai", "model": "m-1"}, 10, 5))
     S.generate_summary(payload())
     st = S.llm_status()
     assert st["last_call_ok"] is True and st["last_error"] is None and st["last_model"] == "m-1"
@@ -164,7 +164,7 @@ def test_error_redacts_key(monkeypatch):
     monkeypatch.setattr(S, "get_settings", lambda: _settings("secret-key-xyz"))
     monkeypatch.setattr(S, "_STATUS", dict(S._STATUS))
 
-    def boom(_):
+    def boom(*_):
         raise RuntimeError("bad request for key=secret-key-xyz")
 
     monkeypatch.setattr(S, "call_gemini", boom)
@@ -190,9 +190,9 @@ class _FakeModels:
         return r
 
 
-def _fake_client(monkeypatch, responses):
+def _fake_client(monkeypatch, responses, **settings_kw):
     models = _FakeModels(responses)
-    monkeypatch.setattr(S, "get_settings", lambda: _settings("fake-test-key"))
+    monkeypatch.setattr(S, "get_settings", lambda: _settings("fake-test-key", **settings_kw))
     monkeypatch.setattr(S, "_gemini_client", lambda: type("C", (), {"models": models})())
     return models
 

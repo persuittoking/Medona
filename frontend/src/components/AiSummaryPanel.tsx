@@ -1,25 +1,43 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
-import type { AiSummary } from "../api/types";
+import type { AiSummary, AiSummaryPending } from "../api/types";
 import { ErrorBox, Skeleton, SourceTag } from "./ui";
 
+const POLL_MS = 3000;
+const MAX_WAIT_MS = 60_000;
+
+/** The backend generates the summary in the background (right after a visit is saved) and answers 202
+ * "pending" until it is cached; we poll every 3 s for at most 60 s. */
 export function AiSummaryPanel({ pregnancyId }: { pregnancyId: number }) {
   const qc = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
+  const startedAt = useRef(Date.now());
   const key = ["ai", pregnancyId];
-  const q = useQuery({ queryKey: key, queryFn: () => api<AiSummary>(`/api/llm/summary/${pregnancyId}`), staleTime: 60_000 });
+  useEffect(() => {
+    startedAt.current = Date.now();
+  }, [pregnancyId]);
+  const q = useQuery({
+    queryKey: key,
+    queryFn: () => api<AiSummary | AiSummaryPending>(`/api/llm/summary/${pregnancyId}`),
+    staleTime: 60_000,
+    refetchInterval: (query) =>
+      query.state.data?.status === "pending" && Date.now() - startedAt.current < MAX_WAIT_MS ? POLL_MS : false,
+  });
 
   async function regenerate() {
     setRefreshing(true);
+    startedAt.current = Date.now();
     try {
-      qc.setQueryData(key, await api<AiSummary>(`/api/llm/summary/${pregnancyId}?refresh=true`));
+      qc.setQueryData(key, await api<AiSummary | AiSummaryPending>(`/api/llm/summary/${pregnancyId}?refresh=true`));
     } finally {
       setRefreshing(false);
     }
   }
 
-  const s = q.data;
+  const s = q.data?.status === "ready" ? q.data : undefined;
+  const pending = q.data?.status === "pending";
+  const timedOut = pending && Date.now() - startedAt.current >= MAX_WAIT_MS;
   return (
     <div className="card">
       <div className="mb-3 flex items-center justify-between gap-2">
@@ -29,9 +47,11 @@ export function AiSummaryPanel({ pregnancyId }: { pregnancyId: number }) {
         </button>
       </div>
       {/* While refetching (e.g. right after a new visit) never show the previous assessment's summary. */}
-      {q.error ? <ErrorBox error={q.error} /> : !s || refreshing || q.isFetching ? (
+      {q.error ? <ErrorBox error={q.error} /> : timedOut ? (
+        <p className="text-sm text-slate-600">AI xulosa hozircha tayyor emas. Birozdan so'ng "Qayta yaratish" tugmasini bosing.</p>
+      ) : !s || refreshing || (q.isFetching && !pending) ? (
         <div className="space-y-2">
-          <p className="text-xs text-slate-500">AI xulosa tayyorlanmoqda… (bir necha soniya)</p>
+          <p className="text-xs text-slate-500">AI xulosa tayyorlanmoqda…</p>
           <Skeleton className="h-40" />
         </div>
       ) : (

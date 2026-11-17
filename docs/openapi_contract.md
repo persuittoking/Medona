@@ -31,7 +31,7 @@ All endpoints except `/api/health` and `/api/auth/login` need `Authorization: Be
 | GET | `/api/geo/polyclinics/{id}` | admins | one polyclinic: counts + territory + breadcrumb. **Never** names, codes or home points |
 | GET | `/api/analytics/model` | all | `ml/artifacts/metrics.json` |
 | GET | `/api/audit` | admins | own district/region staff; filters `action`, `entity` |
-| GET | `/api/llm/summary/{pregnancy_id}` | staff | AI summary (de-identified input) with template fallback; `?refresh=true` regenerates. `source`: `ai` \| `template` |
+| GET | `/api/llm/summary/{pregnancy_id}` | staff | AI summary (de-identified input) with template fallback, cached per assessment and generated in the background: **202** `{"status":"pending"}` until ready, then 200 `{"status":"ready", ...}` (poll every 3 s). `?refresh=true` regenerates. `source`: `ai` \| `template` |
 
 ## VisitIn
 ```json
@@ -53,5 +53,7 @@ Gestational weeks are computed from LMP. Physiologically impossible values → `
 ```
 
 ## Alert SLA
-RED: `SLA_RED_MINUTES` (120; **2 minutes in `DEMO_MODE=true`**). YELLOW: `SLA_YELLOW_HOURS` (72).
+RED: `SLA_RED_MINUTES` (120; **`DEMO_SLA_RED_MINUTES`, default 10, in `DEMO_MODE=true`**). YELLOW: `SLA_YELLOW_HOURS` (72).
+`POST /api/alerts/{id}/demo-expire-sla` (specialist, `DEMO_MODE` only, else 404): sets `sla_due_at` to now so the
+next escalation run (≤30 s) escalates it; audit action `demo_expire_sla`.
 Escalation every 30 s: polyclinic specialist → polyclinic doctor (level 1) → district admin (level 2, notification only — sees counts, not the patient); status `escalated`.

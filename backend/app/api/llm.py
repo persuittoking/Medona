@@ -1,40 +1,43 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
 
 from app.api.deps import require_admin
-from app.api.patients import risk_out
 from app.api.tenancy import Tenant, staff
 from app.config import get_settings
-from app.llm.summary import build_llm_input, generate_summary, llm_status
-from app.models import LlmSummaryCache, RiskAssessment, User, utcnow
-from app.services.scoring import preg_dict, visit_dict
+from app.llm.summary import llm_status
+from app.models import User
+from app.services.ai_summary import build_and_store, generate_cached, get_cached, is_pending
+from app.services.scoring import latest_assessment
 
 router = APIRouter(prefix="/api/llm", tags=["llm"])
 
 
 @router.get("/summary/{pregnancy_id}")
-def llm_summary(pregnancy_id: int, refresh: bool = False, t: Tenant = Depends(staff())) -> dict:
-    """AI summary of the latest assessment. Cached per risk assessment; ?refresh=true regenerates."""
+def llm_summary(pregnancy_id: int, background: BackgroundTasks, response: Response, refresh: bool = False,
+                t: Tenant = Depends(staff())) -> dict:
+    """AI summary of the latest assessment, cached per risk assessment.
+
+    Never blocks on Gemini: if the summary is not cached yet it is generated in the background and this returns
+    202 {"status": "pending"}; the card polls until 200 {"status": "ready", ...}. ?refresh=true regenerates.
+    Without an API key the template ("Shablon") is instant, so it is built inline.
+    """
     db = t.db
     preg = t.get_pregnancy(pregnancy_id)
-    ra = db.scalars(select(RiskAssessment).where(RiskAssessment.pregnancy_id == preg.id)
-                    .order_by(RiskAssessment.id.desc())).first()
+    ra = latest_assessment(db, preg.id)
     if ra is None:
         raise HTTPException(404, "Bu homiladorlik uchun hali baholash yo'q")
-    cached = db.scalars(select(LlmSummaryCache).where(LlmSummaryCache.risk_assessment_id == ra.id)).first()
-    if cached is not None and not refresh:
-        return {**cached.payload, "risk_assessment_id": ra.id, "generated_at": cached.created_at}
-
-    payload = build_llm_input(preg.patient.code, preg.patient.birth_date, preg_dict(preg),
-                              [visit_dict(v) for v in preg.visits], risk_out(ra))
-    result, tin, tout = generate_summary(payload)
+    cached = get_cached(db, ra.id)
+    if cached is not None and refresh and not is_pending(ra.id):
+        db.delete(cached)
+        db.commit()
+        cached = None
+    if cached is None and not get_settings().llm_enabled:
+        cached = build_and_store(db, ra)
     if cached is None:
-        cached = LlmSummaryCache(risk_assessment_id=ra.id, source=result["source"], payload=result)
-        db.add(cached)
-    cached.source, cached.payload, cached.input_tokens, cached.output_tokens = result["source"], result, tin, tout
-    cached.created_at = utcnow()
-    db.commit()
-    return {**result, "risk_assessment_id": ra.id, "generated_at": cached.created_at}
+        if not is_pending(ra.id):
+            background.add_task(generate_cached, ra.id)
+        response.status_code = 202
+        return {"status": "pending", "risk_assessment_id": ra.id}
+    return {**cached.payload, "status": "ready", "risk_assessment_id": ra.id, "generated_at": cached.created_at}
 
 
 @router.get("/health")
@@ -51,8 +54,11 @@ def llm_health(_: User = Depends(require_admin)) -> dict:
         "key_present": bool(s.gemini_api_key),
         "mode": "ai" if s.llm_enabled else "template",
         "configured_model": s.gemini_model,
+        "fallback_model": s.gemini_fallback_model or None,
+        "timeout_s": s.llm_timeout_s,
         "last_call": last_call,
         "last_call_at": st["last_call_at"],
         "last_model": st["last_model"],
         "last_error": st["last_error"],
+        "last_attempts": st.get("last_attempts", []),
     }
