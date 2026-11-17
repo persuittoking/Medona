@@ -30,3 +30,4 @@ backend/ml/artifacts/large/
 Thumbs.db
 .vscode/
 .idea/
+*.tsbuildinfo
