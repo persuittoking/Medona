@@ -123,6 +123,14 @@ def main() -> None:
                                "outcome_rate": round(float(yt[mask].mean()), 4),
                                "system_sensitivity": _sens_spec(yt[mask], rf[mask] | (p_te[mask] >= yellow))["sensitivity"]}
 
+    by_tri = {}
+    gw_te = X.iloc[te]["gest_weeks"].to_numpy()
+    for name, lo_w, hi_w in [("1-trimestr", 0, 14), ("2-trimestr", 14, 28), ("3-trimestr", 28, 99)]:
+        m_ = (gw_te >= lo_w) & (gw_te < hi_w)
+        if m_.sum() > 50 and len(set(yt[m_])) == 2:
+            by_tri[name] = {"n_rows": int(m_.sum()), "roc_auc": round(roc_auc_score(yt[m_], p_te[m_]), 4),
+                            "pr_auc": round(average_precision_score(yt[m_], p_te[m_]), 4)}
+
     sample = X.iloc[te].sample(min(3000, len(te)), random_state=a.seed)
     sv = shap.TreeExplainer(model).shap_values(sample)
     sv = sv[1] if isinstance(sv, list) else sv
@@ -148,6 +156,7 @@ def main() -> None:
         },
         "calibration_curve": {"predicted": [round(float(v), 4) for v in prob_pred], "observed": [round(float(v), 4) for v in prob_true]},
         "per_region": per_region,
+        "by_trimester": by_tri,
         "top_features": [{"feature": f, "uz_label": FEATURE_LABELS.get(f, f).split("{")[0].strip(), "mean_abs_shap": round(float(v), 4)} for f, v in imp],
     }
     ART.mkdir(exist_ok=True)
@@ -164,6 +173,7 @@ def main() -> None:
     print(f"Thresholds: ML yellow >= {yellow}, ML red >= {red}")
     for k, v in metrics["at_thresholds"].items():
         print(f"  {k:26s} sens {v['sensitivity']:.1%}  spec {v['specificity']:.1%}  prec {v['precision']:.1%}  flagged {v['flag_rate']:.1%}")
+    print("By trimester ROC-AUC:", {k: v["roc_auc"] for k, v in by_tri.items()})
     print("Per region ROC-AUC:", {k: v["roc_auc"] for k, v in per_region.items()})
     print(f"Artifacts -> {ART}")
 

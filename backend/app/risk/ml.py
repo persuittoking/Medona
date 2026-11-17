@@ -70,19 +70,28 @@ class Model:
         self.iso = bundle["isotonic"]
         self.features: list[str] = bundle["features"]
         self.version: str = bundle["version"]
+        import warnings
+
         import shap
 
-        self.explainer = shap.TreeExplainer(self.lgbm)
+        self.booster = self.lgbm.booster_  # numpy-in, no feature-name warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            self.explainer = shap.TreeExplainer(self.booster)
 
     def _row(self, feats: dict[str, float]) -> np.ndarray:
         return np.array([[feats.get(f, np.nan) for f in self.features]], dtype=float)
 
     def predict(self, feats: dict[str, float]) -> float:
-        raw = self.lgbm.predict_proba(self._row(feats))[:, 1]
+        raw = self.booster.predict(self._row(feats))
         return float(np.clip(self.iso.predict(raw)[0], 0.0, 1.0))
 
     def explain(self, feats: dict[str, float], k: int = 5) -> list[dict]:
-        sv = self.explainer.shap_values(self._row(feats))
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            sv = self.explainer.shap_values(self._row(feats))
         sv = sv[1] if isinstance(sv, list) else sv
         vals = np.asarray(sv).reshape(-1)[: len(self.features)]
         order = np.argsort(-np.abs(vals))[:k]

@@ -128,14 +128,20 @@ def _demo_patients(db, rng, districts: dict[str, District], users: dict[str, Use
                 "fundal_height_cm": fundal if fundal is not None else (round(w - 0.5, 1) if w >= 20 else None),
                 "symptoms": list(syms)}
 
-    # DEMO1 — "Dilnoza", 19 y, first pregnancy, 31 weeks: BP slowly rising, Hb falling -> YELLOW.
+    # DEMO1 — "Dilnoza", 19 y, first pregnancy, 31 weeks: BP slowly rising (118/76 -> 128/82 -> 136/88),
+    # Hb falling (118 -> 104), fundal height lagging -> YELLOW from trends (T04) + ML.
+    # Live demo: new visit BP 152/98, proteinuria +2, severe headache -> RED (R02).
     _, p1, lmp = base("QQR-NUK-DEMO1", "Dilnoza Karimova", 19, 31.3)
     _score_history(db, rng, p1, [
         v(lmp, 10.0, 112, 72, 121, 58.0),
-        v(lmp, 22.3, 118, 76, 118, 61.5),
-        v(lmp, 26.3, 128, 82, 112, 63.3),
-        v(lmp, 29.3, 136, 88, 104, 67.2, syms=["edema"]),
+        v(lmp, 16.3, 114, 74, 120, 59.8),
+        v(lmp, 22.3, 118, 76, 118, 62.0),
+        v(lmp, 26.3, 128, 82, 112, 64.0),
+        v(lmp, 29.3, 136, 88, 104, 65.6, fundal=26.0, syms=["edema"]),
     ], nurse, today)
+    if p1.current_zone != "yellow":
+        print(f"WARNING: DEMO1 should be YELLOW before the live demo but is {p1.current_zone.upper()} "
+              "(model retrained?). Adjust its history in app/seed.py.")
 
     # DEMO2 — 37 y, previous caesarean, GDM glucose 5.6 -> stable YELLOW (explainability).
     _, p2, lmp = base("QQR-NUK-DEMO2", "Gulnora Rahimova", 37, 27.0, gravidity=3, parity=2, previous_cs=True,

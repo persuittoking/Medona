@@ -69,7 +69,7 @@ NB_CHECK_BY_DAY = 3
 
 # --- ML probability cut-offs ---
 # BEGIN ML THRESHOLDS (auto-written by backend/ml/train.py — do not edit by hand)
-ML_YELLOW = 0.15
-ML_RED = 0.5
-ML_THRESHOLDS_NOTE = "defaults before training"
+ML_YELLOW = 0.115
+ML_RED = 0.255
+ML_THRESHOLDS_NOTE = 'chosen 2026-11-17 on calibration split: system recall target 90%; test system sensitivity 89.0%; model e07aca5c61'
 # END ML THRESHOLDS
