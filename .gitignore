@@ -1,0 +1,32 @@
+# secrets
+.env
+*.env
+!.env.example
+
+# databases
+*.db
+*.db-journal
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# node / build
+node_modules/
+dist/
+
+# ML artifacts larger than 50MB (keep small model files in git)
+backend/ml/data/
+backend/ml/artifacts/*.parquet
+backend/ml/artifacts/*.bin
+backend/ml/artifacts/large/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
