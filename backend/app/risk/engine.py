@@ -5,14 +5,15 @@ Hard clinical rules always apply; the ML model can only RAISE the zone, never lo
 from app.risk import thresholds as T
 from app.risk.features import build_features
 from app.risk.ml import Model, load_model
-from app.risk.rules import max_zone, red_rules, visit_notes, yellow_rules
+from app.risk.rules import FACTOR, ZONE_ORDER, combine_factors, max_zone, red_rules, visit_notes, yellow_rules
 from app.risk.trends import trend_hits, trend_zone
 
 ZONE_UZ = {"red": "QIZIL", "yellow": "SARIQ", "green": "YASHIL"}
 
 
 def rule_zone(hits: list[dict]) -> str:
-    return max_zone(*[h["zone"] for h in hits]) if hits else "green"
+    """Zone from rule hits; Tier B factors ("factor") never set a zone on their own."""
+    return max_zone(*[h["zone"] for h in hits if h["zone"] in ZONE_ORDER])
 
 
 def ml_zone(prob: float | None) -> str:
@@ -26,8 +27,12 @@ def ml_zone(prob: float | None) -> str:
 def explanation_uz(zone: str, rules: list[dict], trends: list[dict], prob: float | None,
                    zml: str, shap_top: list[dict]) -> str:
     parts = [f"Zona: {ZONE_UZ[zone]}."]
-    if rules:
-        parts.append("Klinik qoidalar: " + "; ".join(h["uz_text"] for h in rules) + ".")
+    active = [h for h in rules if h["zone"] != FACTOR]
+    factors = [h for h in rules if h["zone"] == FACTOR]
+    if active:
+        parts.append("Klinik qoidalar: " + "; ".join(h["uz_text"] for h in active) + ".")
+    if factors:
+        parts.append("Xavf omillari (kuzatuv uchun): " + "; ".join(h["uz_text"] for h in factors) + ".")
     if trends:
         parts.append("Dinamika: " + "; ".join(h["uz_text"] for h in trends) + ".")
     if prob is not None:
@@ -38,7 +43,7 @@ def explanation_uz(zone: str, rules: list[dict], trends: list[dict], prob: float
         if zml == zone != "green" and rule_zone(rules) != zone and trend_zone(trends) != zone:
             txt += " — zona model tomonidan oshirildi"
         parts.append(txt + ".")
-    if zone == "green" and not rules and not trends:
+    if zone == "green" and not active and not trends:
         parts.append("Xavf belgilari aniqlanmadi.")
     parts.append("Bu qaror qabul qilishda yordam; yakuniy qarorni shifokor qabul qiladi.")
     return " ".join(parts)
@@ -60,6 +65,7 @@ def score_pregnancy(preg: dict, visits: list[dict], prev_ml_prob: float | None =
         shap_top = mdl.explain(feats)
         version = mdl.version
     trends = trend_hits(preg, visits, prob, prev_ml_prob)
+    rules = combine_factors(rules, trends)
     zr, zt, zml = rule_zone(rules), trend_zone(trends), ml_zone(prob)
     zone = max_zone(zr, zt, zml)
     return {

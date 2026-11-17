@@ -13,7 +13,6 @@ from app.db import get_db
 from app.models import Alert, AuditLog, Patient, Polyclinic, Pregnancy, RiskAssessment, User, utcnow
 from app.risk.features import gest_weeks
 from app.security.crypto import decrypt, mask_name
-from app.services.alerts import run_escalations
 
 router = APIRouter(prefix="/api", tags=["dashboard"])
 
@@ -47,7 +46,6 @@ def zone_kpis(pregs: list[Pregnancy], alerts: list[Alert]) -> dict:
 
 @router.get("/dashboard/summary")
 def summary(t: Tenant = Depends(staff())) -> dict:
-    run_escalations(t.db)
     return {**zone_kpis([p for p, _ in _pregnancies(t)], _alerts(t)), "synthetic": True}
 
 
@@ -72,7 +70,7 @@ def top(limit: int = 10, t: Tenant = Depends(staff())) -> list[dict]:
     for p, pat in pregs:
         ra = t.db.scalars(select(RiskAssessment).where(RiskAssessment.pregnancy_id == p.id)
                           .order_by(RiskAssessment.id.desc())).first()
-        hits = (ra.rule_hits + ra.trend_hits) if ra else []
+        hits = [h for h in (ra.rule_hits + ra.trend_hits) if h["zone"] != "factor"] if ra else []
         out.append({"patient_id": pat.id, "pregnancy_id": p.id, "code": pat.code,
                     "name_masked": mask_name(decrypt(pat.full_name_enc)), "mahalla_name": pat.mahalla.name,
                     "gestational_weeks": gest_weeks(p.lmp_date, date.today()), "zone": p.current_zone,

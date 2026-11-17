@@ -1,5 +1,4 @@
 """OnaRadar FastAPI application."""
-import asyncio
 import contextlib
 import logging
 
@@ -8,32 +7,20 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import alerts, auth, dashboard, geo, llm, patients, visits
 from app.config import get_settings
-from app.db import Base, SessionLocal, engine
+from app.db import Base, engine
 from app.risk.ml import load_model
-from app.services.alerts import run_escalations
+from app.scheduler import start_scheduler
 
 log = logging.getLogger("onaradar")
 
 
-async def _escalation_loop() -> None:
-    while True:
-        await asyncio.sleep(30)
-        try:
-            with SessionLocal() as db:
-                n = run_escalations(db)
-                if n:
-                    log.info("escalated %d alert(s)", n)
-        except Exception:  # noqa: BLE001 - background job must never crash the app
-            log.exception("escalation job failed")
-
-
 @contextlib.asynccontextmanager
-async def lifespan(_: FastAPI):
+async def lifespan(app_: FastAPI):
     Base.metadata.create_all(engine)
     load_model()  # warm the model + SHAP explainer
-    task = asyncio.create_task(_escalation_loop())
+    app_.state.scheduler = start_scheduler()  # SLA escalation every 30 s
     yield
-    task.cancel()
+    app_.state.scheduler.shutdown(wait=False)
 
 
 app = FastAPI(title="OnaRadar API", version="0.1.0", lifespan=lifespan,

@@ -1,228 +1,229 @@
 {
-  "model_version": "e07aca5c61",
+  "model_version": "5622c10fe7",
   "trained_on": "2026-11-17",
   "data": "SYNTHETIC (demo) — retrain on real DMED data",
   "n_pregnancies": 20000,
-  "n_rows": 170504,
-  "outcome_rate": 0.1022,
+  "n_rows": 174505,
+  "outcome_rate": 0.1017,
   "split": {
-    "train_rows": 119402,
-    "calibration_rows": 25534,
-    "test_rows": 25568,
+    "train_rows": 122063,
+    "calibration_rows": 26252,
+    "test_rows": 26190,
     "by": "pregnancy"
   },
   "cv_roc_auc": {
     "folds": [
-      0.705,
-      0.6715,
-      0.6624,
-      0.6656,
-      0.6764
+      0.6504,
+      0.6573,
+      0.6357,
+      0.6536,
+      0.6441
     ],
-    "mean": 0.6762
+    "mean": 0.6482
   },
   "test": {
-    "roc_auc": 0.6906,
-    "pr_auc": 0.3018,
-    "brier": 0.0839,
-    "base_rate": 0.1051
+    "roc_auc": 0.6624,
+    "pr_auc": 0.2786,
+    "brier": 0.0793,
+    "base_rate": 0.0973
   },
   "thresholds": {
-    "ml_yellow": 0.115,
-    "ml_red": 0.255,
-    "recall_target": 0.9
+    "ml_yellow": 0.12,
+    "ml_red": 0.35,
+    "recall_target": 0.85,
+    "recall_level": "pregnancy, flagged from 28 w"
   },
   "at_thresholds": {
     "ml_only_yellow_or_red": {
-      "sensitivity": 0.5009,
-      "specificity": 0.771,
-      "precision": 0.2044,
-      "flag_rate": 0.2575,
+      "sensitivity": 0.3174,
+      "specificity": 0.8991,
+      "precision": 0.2533,
+      "flag_rate": 0.122,
       "confusion": {
-        "tp": 1346,
-        "fp": 5239,
-        "tn": 17642,
-        "fn": 1341
+        "tp": 809,
+        "fp": 2385,
+        "tn": 21256,
+        "fn": 1740
       }
     },
     "ml_only_red": {
-      "sensitivity": 0.1969,
-      "specificity": 0.9777,
-      "precision": 0.5087,
-      "flag_rate": 0.0407,
+      "sensitivity": 0.1467,
+      "specificity": 0.9902,
+      "precision": 0.6182,
+      "flag_rate": 0.0231,
       "confusion": {
-        "tp": 529,
-        "fp": 511,
-        "tn": 22370,
-        "fn": 2158
+        "tp": 374,
+        "fp": 231,
+        "tn": 23410,
+        "fn": 2175
       }
     },
     "rules_only_yellow_or_red": {
-      "sensitivity": 0.8764,
-      "specificity": 0.2142,
-      "precision": 0.1158,
-      "flag_rate": 0.7953,
+      "sensitivity": 0.6144,
+      "specificity": 0.5716,
+      "precision": 0.1339,
+      "flag_rate": 0.4465,
       "confusion": {
-        "tp": 2355,
-        "fp": 17980,
-        "tn": 4901,
-        "fn": 332
+        "tp": 1566,
+        "fp": 10128,
+        "tn": 13513,
+        "fn": 983
       }
     },
     "system_yellow_or_red": {
-      "sensitivity": 0.8902,
-      "specificity": 0.198,
-      "precision": 0.1153,
-      "flag_rate": 0.8112,
+      "sensitivity": 0.6367,
+      "specificity": 0.5506,
+      "precision": 0.1325,
+      "flag_rate": 0.4677,
       "confusion": {
-        "tp": 2392,
-        "fp": 18350,
-        "tn": 4531,
-        "fn": 295
+        "tp": 1623,
+        "fp": 10625,
+        "tn": 13016,
+        "fn": 926
       }
+    },
+    "system_pregnancy_level": {
+      "sensitivity": 0.9184,
+      "flag_rate": 0.731,
+      "n_pregnancies": 2981,
+      "from_weeks": 28
     }
   },
   "calibration_curve": {
     "predicted": [
-      0.0446,
-      0.052,
-      0.0635,
-      0.0738,
-      0.074,
-      0.0829,
-      0.0931,
-      0.1158,
-      0.1459,
-      0.4159
+      0.0628,
+      0.0772,
+      0.0841,
+      0.092,
+      0.0943,
+      0.118,
+      0.3333
     ],
     "observed": [
-      0.0413,
-      0.0571,
-      0.0682,
-      0.0716,
-      0.0803,
-      0.0843,
-      0.0999,
-      0.1154,
-      0.1317,
-      0.41
+      0.0572,
+      0.0802,
+      0.0787,
+      0.0955,
+      0.0982,
+      0.1102,
+      0.3148
     ]
   },
   "per_region": {
     "FAR": {
-      "n_rows": 7988,
-      "roc_auc": 0.6739,
-      "pr_auc": 0.2728,
-      "outcome_rate": 0.0974,
-      "system_sensitivity": 0.91
+      "n_rows": 8121,
+      "roc_auc": 0.6251,
+      "pr_auc": 0.1985,
+      "outcome_rate": 0.0848,
+      "system_sensitivity": 0.6038
     },
     "QQR": {
-      "n_rows": 9970,
-      "roc_auc": 0.6741,
-      "pr_auc": 0.3099,
-      "outcome_rate": 0.1259,
-      "system_sensitivity": 0.898
+      "n_rows": 10164,
+      "roc_auc": 0.6784,
+      "pr_auc": 0.3339,
+      "outcome_rate": 0.1198,
+      "system_sensitivity": 0.7094
     },
     "TSH": {
-      "n_rows": 7610,
-      "roc_auc": 0.7196,
-      "pr_auc": 0.3286,
-      "outcome_rate": 0.0859,
-      "system_sensitivity": 0.8517
+      "n_rows": 7905,
+      "roc_auc": 0.6464,
+      "pr_auc": 0.2665,
+      "outcome_rate": 0.0812,
+      "system_sensitivity": 0.5343
     }
   },
   "by_trimester": {
     "1-trimestr": {
-      "n_rows": 2992,
-      "roc_auc": 0.561,
-      "pr_auc": 0.127
+      "n_rows": 3232,
+      "roc_auc": 0.5506,
+      "pr_auc": 0.1298
     },
     "2-trimestr": {
-      "n_rows": 6603,
-      "roc_auc": 0.5793,
-      "pr_auc": 0.1545
+      "n_rows": 6357,
+      "roc_auc": 0.5412,
+      "pr_auc": 0.1428
     },
     "3-trimestr": {
-      "n_rows": 15973,
-      "roc_auc": 0.741,
-      "pr_auc": 0.3832
+      "n_rows": 16601,
+      "roc_auc": 0.7102,
+      "pr_auc": 0.3546
     }
   },
   "top_features": [
     {
       "feature": "gest_weeks",
       "uz_label": "Homiladorlik muddati",
-      "mean_abs_shap": 0.2214
+      "mean_abs_shap": 0.2033
     },
     {
       "feature": "distance_km",
       "uz_label": "Perinatal markazgacha",
-      "mean_abs_shap": 0.143
-    },
-    {
-      "feature": "age",
-      "uz_label": "Onaning yoshi",
-      "mean_abs_shap": 0.1384
+      "mean_abs_shap": 0.1519
     },
     {
       "feature": "fundal_gap",
       "uz_label": "Bachadon tubi balandligi farqi",
-      "mean_abs_shap": 0.1251
-    },
-    {
-      "feature": "proteinuria_level",
-      "uz_label": "Siydikda oqsil (",
-      "mean_abs_shap": 0.1227
+      "mean_abs_shap": 0.1427
     },
     {
       "feature": "bmi_booking",
       "uz_label": "Tana massasi indeksi",
-      "mean_abs_shap": 0.0949
-    },
-    {
-      "feature": "booking_weeks",
-      "uz_label": "Ro'yxatga olingan muddat",
-      "mean_abs_shap": 0.0737
-    },
-    {
-      "feature": "previous_cs",
-      "uz_label": "Oldingi kesarcha kesish",
-      "mean_abs_shap": 0.0693
+      "mean_abs_shap": 0.1097
     },
     {
       "feature": "interpregnancy_months",
       "uz_label": "Homiladorliklar orasidagi interval",
-      "mean_abs_shap": 0.0661
+      "mean_abs_shap": 0.1011
+    },
+    {
+      "feature": "proteinuria_level",
+      "uz_label": "Siydikda oqsil (",
+      "mean_abs_shap": 0.0968
+    },
+    {
+      "feature": "age",
+      "uz_label": "Onaning yoshi",
+      "mean_abs_shap": 0.0947
+    },
+    {
+      "feature": "booking_weeks",
+      "uz_label": "Ro'yxatga olingan muddat",
+      "mean_abs_shap": 0.0756
     },
     {
       "feature": "hemoglobin",
       "uz_label": "Gemoglobin",
-      "mean_abs_shap": 0.0588
+      "mean_abs_shap": 0.0536
     },
     {
       "feature": "max_systolic",
       "uz_label": "Eng yuqori sistolik bosim",
-      "mean_abs_shap": 0.0452
-    },
-    {
-      "feature": "n_visits",
-      "uz_label": "Tashriflar soni",
-      "mean_abs_shap": 0.0418
+      "mean_abs_shap": 0.0432
     },
     {
       "feature": "min_hemoglobin",
       "uz_label": "Eng past gemoglobin",
-      "mean_abs_shap": 0.0414
+      "mean_abs_shap": 0.037
     },
     {
-      "feature": "hist_preterm",
-      "uz_label": "Anamnezda muddatidan oldin tug'ruq",
-      "mean_abs_shap": 0.0412
+      "feature": "parity",
+      "uz_label": "Tug'ruqlar soni",
+      "mean_abs_shap": 0.0322
     },
     {
-      "feature": "hist_preeclampsia",
-      "uz_label": "Anamnezda preeklampsiya",
-      "mean_abs_shap": 0.0406
+      "feature": "weight_gain_rate",
+      "uz_label": "Vazn ortishi",
+      "mean_abs_shap": 0.0228
+    },
+    {
+      "feature": "diastolic",
+      "uz_label": "Diastolik bosim",
+      "mean_abs_shap": 0.0227
+    },
+    {
+      "feature": "fetal_heart_rate",
+      "uz_label": "Homila yurak urishi",
+      "mean_abs_shap": 0.0214
     }
   ]
 }

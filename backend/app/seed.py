@@ -1,7 +1,9 @@
 """Reset and seed the database with SYNTHETIC demo data (multi-tenant by polyclinic).
 
 Hierarchy: Region -> District -> Polyclinic (tenant) -> Mahalla -> Patients (home point inside the mahalla polygon).
-Usage (from backend/):  .venv\\Scripts\\python -m app.seed [--n 300] [--seed 7]
+Each mahalla gets 50-60 active pregnancies + a few recent deliveries. Candidates are scored by the real risk
+engine and kept by zone quota (ZONE_MIX), so every register shows a realistic green/yellow/red mix.
+Usage (from backend/):  .venv\\Scripts\\python -m app.seed [--seed 7]
 """
 from __future__ import annotations
 
@@ -28,6 +30,14 @@ from seed.fetch_mahallas import as_shape
 from seed.fetch_mahallas import load as load_boundary
 
 DEMO_PASSWORD = "demo1234"
+# Realistic size of one mahalla's antenatal register (one mahalla per demo polyclinic).
+ACTIVE_PER_MAHALLA = (50, 60)    # active pregnancies, inclusive range
+NEWBORNS_PER_MAHALLA = (2, 4)    # recently delivered (mother + newborn), inclusive range
+DEMO_ACTIVE_ZONES = {"yellow": 2, "green": 1}  # DEMO1-2 yellow, DEMO3 green (PL-NUK-001); DEMO4 is delivered
+# Demo register zone mix (product target for a realistic-looking dashboard, NOT an epidemiological estimate):
+# each mahalla's quota is drawn inside these bands and candidates are accepted by their computed zone.
+ZONE_MIX = {"red": (0.03, 0.07), "yellow": (0.20, 0.28)}
+MAX_DRAWS_PER_MAHALLA = 3000
 ACTIONS = [
     "Bemor bilan telefon orqali bog'lanildi, perinatal markazga yo'llandi",
     "Arterial bosim qayta o'lchandi, shifokor ko'rigiga chaqirildi",
@@ -67,15 +77,23 @@ class Tenant:
             db.add(u)
             self.users[role] = u
         db.flush()
-        self._homes = iter(sample_points(feat["geometry"], 500, rng))
+        self._homes = sample_points(feat["geometry"], 500, rng)
+        self._home_i = 0
         self._seq = 400
 
     def next_code(self) -> int:
         self._seq += 1
         return self._seq
 
+    def next_home_distance_km(self) -> float:
+        """Distance to the perinatal centre of the home point the next add_patient() will use."""
+        lat, lon = self._homes[self._home_i]
+        per = self.rdef["perinatal"]
+        return round(haversine_km(lat, lon, per["lat"], per["lon"]), 1)
+
     def add_patient(self, db, p: dict) -> Patient:
-        lat, lon = next(self._homes)
+        lat, lon = self._homes[self._home_i]
+        self._home_i += 1
         validate_home(self.mahalla.boundary_geojson, lat, lon)
         per = self.rdef["perinatal"]
         pat = Patient(code=p["code"], full_name_enc=encrypt(p["full_name"]), pinfl_enc=encrypt(p["pinfl"]),
@@ -148,7 +166,8 @@ def _demo_patients(db, rng, t: Tenant, today: date) -> None:
                 "symptoms": list(syms)}
 
     # DEMO1 — "Dilnoza", 19 y, first pregnancy, 31 weeks: BP slowly rising (118/76 -> 128/82 -> 136/88),
-    # Hb falling (118 -> 104), fundal height lagging -> YELLOW from trends (T04) + ML.
+    # Hb falling (118 -> 104), fundal height slightly behind (2.3 cm, below the T04 rule) -> no single rule
+    # fires, the ML model raises the zone to YELLOW ("zona model tomonidan oshirildi").
     # Live demo: new visit BP 152/98, proteinuria +2, severe headache -> RED (R02).
     _, p1, lmp = base("QQR-NUK-DEMO1", "Dilnoza Karimova", 19, 31.3)
     _score_history(db, rng, p1, [
@@ -156,7 +175,7 @@ def _demo_patients(db, rng, t: Tenant, today: date) -> None:
         v(lmp, 16.3, 114, 74, 120, 59.8),
         v(lmp, 22.3, 118, 76, 118, 62.0),
         v(lmp, 26.3, 128, 82, 112, 64.0),
-        v(lmp, 29.3, 136, 88, 104, 65.6, fundal=26.0, syms=["edema"]),
+        v(lmp, 29.3, 136, 88, 104, 65.6, fundal=27.0, syms=["edema"]),
     ], nurse, today)
     if p1.current_zone != "yellow":
         print(f"WARNING: DEMO1 should be YELLOW before the live demo but is {p1.current_zone.upper()} "
@@ -210,6 +229,75 @@ def _add_newborn(db, pr: Pregnancy, birth: date, ga: float, bw: int, apgar: int,
     return nb
 
 
+def _final_zone(preg: dict, visits: list[dict]) -> str:
+    """Zone after the last visit, scored visit by visit exactly as _score_history does (pure, no DB)."""
+    prev_prob, res = None, None
+    for k in range(len(visits)):
+        res = score_pregnancy(preg, [visit_dict(v) for v in visits[: k + 1]], prev_ml_prob=prev_prob)
+        prev_prob = res["ml_probability"]
+    return res["zone"]
+
+
+def _draw_candidate(rng, t: Tenant, today: date, delivered: bool) -> tuple[dict, dict, list[dict], float]:
+    """A synthetic pregnancy (not yet in the DB): patient dict, pregnancy dict, visits, current week."""
+    while True:
+        cur_w = float(rng.uniform(38, 41)) if delivered else float(rng.uniform(7, 40.5))
+        lmp = today - timedelta(days=int(cur_w * 7))
+        p, preg, lat = make_pregnancy(rng, t.rdef, t.ddef, t.next_code(), lmp)
+        if (preg["booking_date"] - lmp).days / 7 <= cur_w:
+            break  # otherwise: not booked yet, draw again
+    last_visit_w = max((preg["booking_date"] - lmp).days / 7, cur_w - float(rng.uniform(0, 3.5)))
+    # Demo enrichment (documented): some currently-deteriorating cases so the dashboard is not empty.
+    if cur_w > 24 and rng.random() < 0.04:
+        lat.pe_onset, lat.pe_rate = cur_w - float(rng.uniform(3, 8)), float(rng.uniform(3.5, 6.5))
+    elif cur_w > 18 and rng.random() < 0.04:
+        lat.anemia_onset, lat.anemia_rate = cur_w - float(rng.uniform(6, 14)), float(rng.uniform(2.0, 3.5))
+    preg["distance_to_perinatal_km"] = t.next_home_distance_km()  # the real home point, as stored in the DB
+    visits = make_visits(rng, preg, lat, upto_w=min(last_visit_w, lat.delivery_week + 1))
+    return p, preg, visits, cur_w
+
+
+def _insert_pregnancy(db, rng, t: Tenant, today: date, cand: tuple, delivered: bool) -> None:
+    p, preg, visits, cur_w = cand
+    pat = t.add_patient(db, p)
+    pr = _add_pregnancy(db, pat, preg, status="delivered" if delivered else "active")
+    _score_history(db, rng, pr, visits, t.users["nurse"], today)
+    if delivered:
+        ga = round(min(cur_w, 41.0), 1)
+        bw = int(np.clip(rng.normal(3300 - max(0, 39 - ga) * 220, 420), 1200, 4800))
+        ck = {"check_date": today - timedelta(days=int(rng.integers(0, 3))), "resp_rate": int(rng.integers(36, 58)),
+              "temperature_c": round(float(rng.normal(36.8, 0.25)), 1), "weight_g": bw - 80,
+              "jaundice_palms_soles": bool(rng.random() < 0.04), "not_feeding_well": bool(rng.random() < 0.04)}
+        _add_newborn(db, pr, today - timedelta(days=int(rng.integers(1, 20))), ga, bw,
+                     int(rng.integers(6, 10)), ck if rng.random() < 0.85 else None)
+
+
+def zone_quotas(rng, n_active: int) -> dict[str, int]:
+    """Target zone mix of one mahalla register, drawn inside ZONE_MIX (demo sampling, not epidemiology)."""
+    red = int(round(n_active * rng.uniform(*ZONE_MIX["red"])))
+    yellow = int(round(n_active * rng.uniform(*ZONE_MIX["yellow"])))
+    return {"red": red, "yellow": yellow, "green": n_active - red - yellow}
+
+
+def _fill_register(db, rng, t: Tenant, today: date, quotas: dict[str, int]) -> None:
+    """Draw candidates, score them in memory and keep each one while its zone still has room (quota sampling).
+
+    After MAX_DRAWS_PER_MAHALLA candidates any zone is accepted, so seeding always terminates.
+    """
+    left, draws = dict(quotas), 0
+    while sum(left.values()) > 0:
+        cand = _draw_candidate(rng, t, today, delivered=False)
+        draws += 1
+        _, preg, visits, _ = cand
+        zone = _final_zone(preg, visits)
+        if left[zone] <= 0 and draws < MAX_DRAWS_PER_MAHALLA:
+            continue
+        if left[zone] <= 0:  # give up on the exact mix, take the zone that still needs the most
+            zone = max(left, key=left.get)
+        left[zone] -= 1
+        _insert_pregnancy(db, rng, t, today, cand, delivered=False)
+
+
 def reset_schema() -> None:
     """Drop EVERY existing table (also ones from older schema versions) and recreate the current schema."""
     from sqlalchemy import MetaData, text
@@ -225,7 +313,8 @@ def reset_schema() -> None:
     Base.metadata.create_all(engine)
 
 
-def seed(n: int = 300, seed_value: int = 7) -> dict:
+def seed(seed_value: int = 7, active_per_mahalla: tuple[int, int] = ACTIVE_PER_MAHALLA) -> dict:
+    """Reset the DB and seed it. Tests pass a smaller `active_per_mahalla` for speed."""
     t0 = time.time()
     rng = np.random.default_rng(seed_value)
     today = date.today()
@@ -252,38 +341,14 @@ def seed(n: int = 300, seed_value: int = 7) -> dict:
                             role="region_admin", region_id=region.id, password_hash=pw))
         db.flush()
 
-        codes = [p["code"] for p in POLYCLINICS]
-        weights = np.array([0.45 if c == "PL-NUK-001" else 0.275 for c in codes])
-        weights /= weights.sum()
-        created = 0
-        while created < n:
-            t = tenants[codes[int(rng.choice(len(codes), p=weights))]]
-            delivered = rng.random() < 0.06
-            cur_w = float(rng.uniform(38, 41)) if delivered else float(rng.uniform(7, 40.5))
-            lmp = today - timedelta(days=int(cur_w * 7))
-            p, preg, lat = make_pregnancy(rng, t.rdef, t.ddef, t.next_code(), lmp)
-            last_visit_w = max((preg["booking_date"] - lmp).days / 7, cur_w - float(rng.uniform(0, 3.5)))
-            if (preg["booking_date"] - lmp).days / 7 > cur_w:
-                continue  # not booked yet
-            created += 1
-            # Demo enrichment (documented): more currently-deteriorating cases so the dashboard is not empty.
-            if cur_w > 24 and rng.random() < 0.10:
-                lat.pe_onset, lat.pe_rate = cur_w - float(rng.uniform(3, 8)), float(rng.uniform(3.5, 6.5))
-            elif cur_w > 18 and rng.random() < 0.07:
-                lat.anemia_onset, lat.anemia_rate = cur_w - float(rng.uniform(6, 14)), float(rng.uniform(2.0, 3.5))
-            nurse = t.users["nurse"]
-            pat = t.add_patient(db, p)
-            pr = _add_pregnancy(db, pat, preg, status="delivered" if delivered else "active")
-            _score_history(db, rng, pr, make_visits(rng, preg, lat, upto_w=min(last_visit_w, lat.delivery_week + 1)),
-                           nurse, today)
-            if delivered:
-                ga = round(min(cur_w, 41.0), 1)
-                bw = int(np.clip(rng.normal(3300 - max(0, 39 - ga) * 220, 420), 1200, 4800))
-                ck = {"check_date": today - timedelta(days=int(rng.integers(0, 3))), "resp_rate": int(rng.integers(36, 58)),
-                      "temperature_c": round(float(rng.normal(36.8, 0.25)), 1), "weight_g": bw - 80,
-                      "jaundice_palms_soles": bool(rng.random() < 0.04), "not_feeding_well": bool(rng.random() < 0.04)}
-                _add_newborn(db, pr, today - timedelta(days=int(rng.integers(1, 20))), ga, bw,
-                             int(rng.integers(6, 10)), ck if rng.random() < 0.85 else None)
+        for t in tenants.values():
+            quotas = zone_quotas(rng, int(rng.integers(active_per_mahalla[0], active_per_mahalla[1] + 1)))
+            if t.pdef["code"] == "PL-NUK-001":
+                for z, k in DEMO_ACTIVE_ZONES.items():  # DEMO1-3 are added below and count towards the mix
+                    quotas[z] -= k
+            _fill_register(db, rng, t, today, quotas)
+            for _ in range(int(rng.integers(NEWBORNS_PER_MAHALLA[0], NEWBORNS_PER_MAHALLA[1] + 1))):
+                _insert_pregnancy(db, rng, t, today, _draw_candidate(rng, t, today, delivered=True), delivered=True)
 
         _demo_patients(db, rng, tenants["PL-NUK-001"], today)
         db.commit()
@@ -297,6 +362,10 @@ def seed(n: int = 300, seed_value: int = 7) -> dict:
                                         for t in tenants.values()},
         }
         zones = {z: db.query(Pregnancy).filter_by(status="active", current_zone=z).count() for z in ("red", "yellow", "green")}
+        stats["zones_per_polyclinic"] = {
+            t.pdef["code"]: {z: db.query(Pregnancy).join(Patient).filter(
+                Pregnancy.status == "active", Pregnancy.current_zone == z, Patient.polyclinic_id == t.polyclinic.id).count()
+                for z in ("green", "yellow", "red")} for t in tenants.values()}
     stats["active_zones"] = zones
     stats["seconds"] = round(time.time() - t0, 1)
     return stats
@@ -304,14 +373,13 @@ def seed(n: int = 300, seed_value: int = 7) -> dict:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--n", type=int, default=300)
     ap.add_argument("--seed", type=int, default=7)
     a = ap.parse_args()
     from app.risk.ml import load_model
 
     if load_model() is None:
         print("WARNING: ML model artifact not found - seeding with rules + trends only. Run ml/train.py first.")
-    print(seed(a.n, a.seed))
+    print(seed(a.seed))
 
 
 if __name__ == "__main__":

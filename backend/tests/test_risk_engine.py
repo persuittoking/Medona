@@ -192,10 +192,74 @@ def test_y14_post_term(w, hit):
     assert ("Y14" in yellow_codes(preg(w), visit(w))) is hit
 
 
-def test_y15_distance_only_with_other_factor():
-    assert "Y15" not in yellow_codes(preg(distance_to_perinatal_km=80), visit())
-    assert "Y15" in yellow_codes(preg(distance_to_perinatal_km=80, rh_negative=True), visit())
-    assert "Y15" not in yellow_codes(preg(distance_to_perinatal_km=50, rh_negative=True), visit())
+def test_y15_distance():
+    assert "Y15" in yellow_codes(preg(distance_to_perinatal_km=80), visit())
+    assert "Y15" not in yellow_codes(preg(distance_to_perinatal_km=50), visit())
+
+
+# ---------- Tier A / Tier B ----------
+TIER_A_CASES = {
+    "Y02": dict(parity=5, gravidity=6), "Y03": dict(previous_cs=True), "Y04": dict(hist_stillbirth=True),
+    "Y09": dict(multiple_pregnancy=True), "Y10": dict(diabetes=True),
+}
+TIER_B_CASES = {
+    "Y01": dict(age=36), "Y08": dict(booking_weight_kg=80.0), "Y11": dict(interpregnancy_months=12),
+    "Y12": dict(rh_negative=True), "Y13": dict(booking_date=None), "Y15": dict(distance_to_perinatal_km=80),
+}
+
+
+def _p(over: dict) -> dict:
+    over = dict(over)
+    p = preg(age=over.pop("age", 26), **{k: v for k, v in over.items() if k != "booking_date"})
+    if "booking_date" in over:  # late booking: 14 weeks
+        p["booking_date"] = p["lmp_date"] + timedelta(days=14 * 7)
+    return p
+
+
+def test_tier_config_matches_spec():
+    assert set(T.TIER_B_RULES) == {"Y01", "Y08", "Y11", "Y12", "Y13", "Y15"}
+
+
+@pytest.mark.parametrize("code", sorted(TIER_A_CASES))
+def test_tier_a_alone_is_yellow(code):
+    res = score_pregnancy(_p(TIER_A_CASES[code]), [visit()], model=False)
+    assert code in {h["code"] for h in res["rule_hits"] if h["zone"] == "yellow"} and res["zone"] == "yellow"
+
+
+@pytest.mark.parametrize("v_over,code", [({"systolic": 142}, "Y05"), ({"hemoglobin_g_l": 95}, "Y06"),
+                                         ({"fasting_glucose_mmol": 5.5}, "Y07")])
+def test_tier_a_visit_rules_alone_are_yellow(v_over, code):
+    res = score_pregnancy(preg(), [visit(**v_over)], model=False)
+    assert code in {h["code"] for h in res["rule_hits"]} and res["zone"] == "yellow"
+
+
+def test_tier_a_y14_alone_is_yellow():
+    assert score_pregnancy(preg(41.5), [visit(41.5)], model=False)["zone"] == "yellow"
+
+
+@pytest.mark.parametrize("code", sorted(TIER_B_CASES))
+def test_tier_b_alone_stays_green(code):
+    res = score_pregnancy(_p(TIER_B_CASES[code]), [visit()], model=False)
+    hits = {h["code"]: h["zone"] for h in res["rule_hits"]}
+    assert hits == {code: "factor"}, hits
+    assert res["zone"] == "green"
+    assert "Xavf omillari (kuzatuv uchun)" in res["explanation_uz"]
+
+
+def test_two_tier_b_factors_make_yellow():
+    res = score_pregnancy(preg(age=36, rh_negative=True), [visit()], model=False)
+    assert res["zone"] == "yellow" and "Y16" in {h["code"] for h in res["rule_hits"]}
+
+
+def test_one_tier_b_plus_trend_makes_yellow():
+    res = score_pregnancy(preg(rh_negative=True), [visit(26, days_before=28), visit(hemoglobin_g_l=104)], model=False)
+    codes = {h["code"] for h in res["rule_hits"]}
+    assert {"Y12", "Y16"} <= codes and res["trend_zone"] == "yellow" and res["rule_zone"] == "yellow"
+
+
+def test_one_tier_b_without_trend_no_combo():
+    res = score_pregnancy(preg(rh_negative=True), [visit(26, days_before=28), visit()], model=False)
+    assert "Y16" not in {h["code"] for h in res["rule_hits"]} and res["zone"] == "green"
 
 
 # ---------- trend rules ----------
@@ -267,7 +331,8 @@ def test_ml_cannot_lower_a_red_rule():
 
 
 def test_ml_cannot_lower_a_yellow_rule():
-    assert score_pregnancy(preg(rh_negative=True), [visit()], model=FakeModel(0.0))["zone"] == "yellow"
+    assert score_pregnancy(preg(previous_cs=True), [visit()], model=FakeModel(0.0))["zone"] == "yellow"
+    assert score_pregnancy(preg(age=36, rh_negative=True), [visit()], model=FakeModel(0.0))["zone"] == "yellow"
 
 
 def test_ml_can_raise():

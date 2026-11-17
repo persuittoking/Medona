@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date
+from datetime import date, datetime, timezone
 
 from pydantic import BaseModel, Field
 
@@ -82,7 +82,7 @@ def build_llm_input(patient_code: str, birth_date: date, preg: dict, visits: lis
         "deltas_vs_previous_visit": deltas,
         "zone": assessment["zone"],
         "ml_probability": assessment.get("ml_probability"),
-        "rule_hits": [{"code": h["code"], "text": h["uz_text"]} for h in assessment.get("rule_hits", [])],
+        "rule_hits": [{"code": h["code"], "zone": h["zone"], "text": h["uz_text"]} for h in assessment.get("rule_hits", [])],
         "trend_hits": [{"code": h["code"], "text": h["uz_text"]} for h in assessment.get("trend_hits", [])],
         "shap_top": [{"feature": s["feature"], "label": s["uz_label"], "direction": s["direction"]}
                      for s in assessment.get("shap_top", [])],
@@ -105,7 +105,8 @@ def _finalize(out: LlmOutput, payload: dict, source: str, model: str | None) -> 
 
 def template_summary(payload: dict) -> dict:
     """Deterministic fallback: no network, built from rule/trend hits + SHAP + rule->action table."""
-    hits = payload["rule_hits"] + payload["trend_hits"]
+    # Tier B factors ("factor") go last: they are follow-up notes, not the reason for the zone.
+    hits = sorted(payload["rule_hits"] + payload["trend_hits"], key=lambda h: h.get("zone") == "factor")
     zone = payload["zone"]
     s = [f"{payload['patient_code']}: {payload['age']} yosh, homiladorlik muddati {payload['gestational_weeks']:g} hafta, "
          f"hozirgi zona — {ZONE_UZ[zone]}."]
@@ -157,11 +158,30 @@ def call_claude(payload: dict) -> tuple[dict, int | None, int | None]:
     return _finalize(resp.parsed_output, payload, "ai", resp.model), usage.input_tokens, usage.output_tokens
 
 
+# In-process status of the most recent real LLM call (for GET /api/llm/health). Never holds payloads.
+_STATUS: dict = {"last_call_at": None, "last_call_ok": None, "last_error": None, "last_model": None}
+_ERROR_MAX_CHARS = 300
+
+
+def llm_status() -> dict:
+    return dict(_STATUS)
+
+
+def _record_call(ok: bool, error: Exception | None = None, model: str | None = None) -> None:
+    _STATUS["last_call_at"] = datetime.now(timezone.utc)
+    _STATUS["last_call_ok"] = ok
+    _STATUS["last_model"] = model
+    _STATUS["last_error"] = None if error is None else f"{type(error).__name__}: {error}"[:_ERROR_MAX_CHARS]
+
+
 def generate_summary(payload: dict) -> tuple[dict, int | None, int | None]:
     if not get_settings().anthropic_api_key:
         return template_summary(payload), None, None
     try:
-        return call_claude(payload)
+        result = call_claude(payload)
     except Exception as e:  # noqa: BLE001 - any failure (timeout, invalid JSON, auth) -> template, demo never fails
         log.warning("LLM call failed, using template fallback: %s", type(e).__name__)
+        _record_call(False, e)
         return template_summary(payload), None, None
+    _record_call(True, model=result[0].get("model"))
+    return result

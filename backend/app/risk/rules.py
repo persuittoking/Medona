@@ -1,8 +1,15 @@
-"""Clinical rules (antenatal). Each hit: {code, zone, uz_text}. See docs/CLINICAL_RULES.md."""
+"""Clinical rules (antenatal). Each hit: {code, zone, uz_text}. See docs/CLINICAL_RULES.md.
+
+Yellow rules come in two tiers:
+- Tier A (zone "yellow"): each one alone makes the pregnancy YELLOW.
+- Tier B risk factors (zone "factor"): shown in grey for follow-up and used by the ML model; they make
+  the pregnancy YELLOW only in combination (see `combine_factors`).
+"""
 from app.risk import thresholds as T
 from app.risk.features import age_years, as_date, bmi, visit_weeks
 
 ZONE_ORDER = {"green": 0, "yellow": 1, "red": 2}
+FACTOR = "factor"  # Tier B risk factor: informational on its own
 
 
 def max_zone(*zones: str) -> str:
@@ -11,6 +18,11 @@ def max_zone(*zones: str) -> str:
 
 def _hit(code: str, zone: str, text: str) -> dict:
     return {"code": code, "zone": zone, "uz_text": text}
+
+
+def _yhit(code: str, text: str) -> dict:
+    """Yellow-rule hit; the tier (yellow vs factor) comes from thresholds.TIER_B_RULES."""
+    return _hit(code, FACTOR if code in T.TIER_B_RULES else "yellow", text)
 
 
 def _bp(v: dict) -> tuple[int | None, int | None]:
@@ -77,11 +89,11 @@ def yellow_rules(preg: dict, visit: dict, prev_visit: dict | None = None) -> lis
     b = bmi(preg)
 
     if age < T.AGE_YOUNG or age >= T.AGE_OLD:
-        hits.append(_hit("Y01", "yellow", f"Onaning yoshi xavf guruhida ({int(age)} yosh)"))
+        hits.append(_yhit("Y01", f"Onaning yoshi xavf guruhida ({int(age)} yosh)"))
     if preg.get("parity", 0) >= T.GRAND_MULTIPARA:
-        hits.append(_hit("Y02", "yellow", f"Ko'p tug'ruq ({preg['parity']} marta)"))
+        hits.append(_yhit("Y02", f"Ko'p tug'ruq ({preg['parity']} marta)"))
     if preg.get("previous_cs"):
-        hits.append(_hit("Y03", "yellow", "Oldingi kesarcha kesish"))
+        hits.append(_yhit("Y03", "Oldingi kesarcha kesish"))
     hist = []
     if preg.get("hist_stillbirth"):
         hist.append("o'lik tug'ilish")
@@ -94,30 +106,30 @@ def yellow_rules(preg: dict, visit: dict, prev_visit: dict | None = None) -> lis
     if preg.get("hist_pph"):
         hist.append("tug'ruqdan keyingi qon ketish")
     if hist:
-        hits.append(_hit("Y04", "yellow", "Akusherlik anamnezi: " + ", ".join(hist)))
+        hits.append(_yhit("Y04", "Akusherlik anamnezi: " + ", ".join(hist)))
     severe = (s is not None and s >= T.SEVERE_SYS) or (d is not None and d >= T.SEVERE_DIA)
     if _is_htn(s, d) and not severe and prot < T.PROTEINURIA_POSITIVE:
-        hits.append(_hit("Y05", "yellow", f"Arterial bosim oshgan (AB {s}/{d}), proteinuriyasiz"))
+        hits.append(_yhit("Y05", f"Arterial bosim oshgan (AB {s}/{d}), proteinuriyasiz"))
     if hb is not None and T.HB_SEVERE <= hb < T.HB_MODERATE:
-        hits.append(_hit("Y06", "yellow", f"O'rta og'ir anemiya (gemoglobin {hb:g} g/L)"))
+        hits.append(_yhit("Y06", f"O'rta og'ir anemiya (gemoglobin {hb:g} g/L)"))
     if glu is not None and T.GLUCOSE_GDM <= glu < T.GLUCOSE_OVERT:
-        hits.append(_hit("Y07", "yellow", f"Gestatsion diabet shubhasi (glyukoza {glu:g} mmol/L)"))
+        hits.append(_yhit("Y07", f"Gestatsion diabet shubhasi (glyukoza {glu:g} mmol/L)"))
     if b == b and (b < T.BMI_LOW or b >= T.BMI_HIGH):
-        hits.append(_hit("Y08", "yellow", f"Tana massasi indeksi me'yordan tashqari (TMI {b:g})"))
+        hits.append(_yhit("Y08", f"Tana massasi indeksi me'yordan tashqari (TMI {b:g})"))
     if preg.get("multiple_pregnancy"):
-        hits.append(_hit("Y09", "yellow", "Ko'p homilali homiladorlik"))
+        hits.append(_yhit("Y09", "Ko'p homilali homiladorlik"))
     chronic_names = {
         "diabetes": "qandli diabet", "chronic_htn": "surunkali gipertenziya", "heart": "yurak kasalligi",
         "kidney": "buyrak kasalligi", "thyroid": "qalqonsimon bez kasalligi", "epilepsy": "epilepsiya",
     }
     chronic = [n for k, n in chronic_names.items() if preg.get(k)]
     if chronic:
-        hits.append(_hit("Y10", "yellow", "Surunkali kasallik: " + ", ".join(chronic)))
+        hits.append(_yhit("Y10", "Surunkali kasallik: " + ", ".join(chronic)))
     ipm = preg.get("interpregnancy_months")
     if ipm is not None and ipm < T.SHORT_INTERPREGNANCY_MONTHS:
-        hits.append(_hit("Y11", "yellow", f"Homiladorliklar orasidagi qisqa interval ({ipm} oy)"))
+        hits.append(_yhit("Y11", f"Homiladorliklar orasidagi qisqa interval ({ipm} oy)"))
     if preg.get("rh_negative"):
-        hits.append(_hit("Y12", "yellow", "Rezus-manfiy qon guruhi"))
+        hits.append(_yhit("Y12", "Rezus-manfiy qon guruhi"))
     booking_w = visit_weeks(preg, {"visit_date": preg["booking_date"]})
     overdue_txt = None
     if prev_visit is not None:
@@ -128,13 +140,26 @@ def yellow_rules(preg: dict, visit: dict, prev_visit: dict | None = None) -> lis
     if booking_w > T.LATE_BOOKING_WEEKS or overdue_txt:
         parts = ([f"kech ro'yxatga olingan ({booking_w:g} hafta)"] if booking_w > T.LATE_BOOKING_WEEKS else [])
         parts += [overdue_txt] if overdue_txt else []
-        hits.append(_hit("Y13", "yellow", "Kuzatuv uzilishi: " + ", ".join(parts)))
+        hits.append(_yhit("Y13", "Kuzatuv uzilishi: " + ", ".join(parts)))
     if gw >= T.POSTTERM_WEEKS:
-        hits.append(_hit("Y14", "yellow", f"Muddatidan o'tgan homiladorlik ({gw:g} hafta)"))
+        hits.append(_yhit("Y14", f"Muddatidan o'tgan homiladorlik ({gw:g} hafta)"))
     dist = preg.get("distance_to_perinatal_km") or 0
-    if dist > T.FAR_FROM_PERINATAL_KM and hits:
-        hits.append(_hit("Y15", "yellow", f"Perinatal markazdan uzoq ({dist:.0f} km) va boshqa xavf omili bor"))
+    if dist > T.FAR_FROM_PERINATAL_KM:
+        hits.append(_yhit("Y15", f"Perinatal markazdan uzoq ({dist:.0f} km)"))
     return hits
+
+
+def combine_factors(rule_hits: list[dict], trend_hits: list[dict]) -> list[dict]:
+    """Tier B factors raise the zone to YELLOW only as 2+ factors together, or 1 factor + any trend hit.
+
+    Returns `rule_hits` plus a Y16 hit (zone yellow) naming the combination when it applies.
+    """
+    factors = [h for h in rule_hits if h["zone"] == FACTOR]
+    n_needed = 1 if trend_hits else T.TIER_B_MIN_FOR_YELLOW
+    if len(factors) < n_needed:
+        return rule_hits
+    why = ", ".join(h["code"] for h in factors) + (" + dinamika" if trend_hits and len(factors) < 2 else "")
+    return rule_hits + [_hit("Y16", "yellow", f"Bir nechta xavf omili birga ({why})")]
 
 
 def visit_notes(preg: dict, visit: dict) -> list[str]:

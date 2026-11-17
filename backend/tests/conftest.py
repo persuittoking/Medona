@@ -27,7 +27,7 @@ def client():
 
     from app.seed import seed
 
-    seed(n=45, seed_value=3)
+    seed(seed_value=3, active_per_mahalla=(16, 18))  # small register: fast tests
     from app.main import app
 
     with TestClient(app) as c:

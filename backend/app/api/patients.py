@@ -1,6 +1,6 @@
 from datetime import date, timedelta
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
@@ -85,9 +85,12 @@ def list_patients(zone: str | None = None, mahalla_id: int | None = None, trimes
 def patient_detail(patient_id: int, request: Request, t: Tenant = Depends(staff())) -> dict:
     db, user = t.db, t.user
     pat = t.get_patient(patient_id)
-    preg = sorted(pat.pregnancies, key=lambda p: (p.status != "active", -p.id))[0]
-    audit(db, user, "view_patient", "patient", pat.id, request)
+    audit(db, user, "view_patient", "patient", pat.id, request)  # the attempt is logged even without a pregnancy
     db.commit()
+    if not pat.pregnancies:
+        raise HTTPException(404, "Faol homiladorlik topilmadi")
+    # active pregnancy first, otherwise the most recent one (e.g. delivered, with the newborn)
+    preg = sorted(pat.pregnancies, key=lambda p: (p.status != "active", -p.id))[0]
     assessments = db.scalars(select(RiskAssessment).where(RiskAssessment.pregnancy_id == preg.id)
                              .order_by(RiskAssessment.id)).all()
     alerts = db.scalars(select(Alert).where(Alert.pregnancy_id == preg.id).order_by(Alert.id.desc())).all()

@@ -6,7 +6,9 @@ const DOT: Record<string, string> = { red: "bg-zred", yellow: "bg-zyellow", gree
 
 /** "Nega bu zona?" — rule hits, trend hits and SHAP factors in Uzbek. */
 export function RiskExplain({ risk, compact = false }: { risk: Risk; compact?: boolean }) {
-  const hits = [...risk.rule_hits, ...risk.trend_hits];
+  const all = [...risk.rule_hits, ...risk.trend_hits];
+  const hits = all.filter((h) => h.zone !== "factor");
+  const factors = all.filter((h) => h.zone === "factor");
   const maxShap = Math.max(0.01, ...risk.shap_top.map((s) => Math.abs(s.shap)));
   return (
     <div className="space-y-4">
@@ -35,6 +37,22 @@ export function RiskExplain({ risk, compact = false }: { risk: Risk; compact?: b
               </li>
             ))}
           </ul>
+        )}
+        {factors.length > 0 && (
+          <div className="mt-3">
+            <h5 className="mb-1 text-xs font-medium text-slate-400">Xavf omillari (kuzatuv uchun)</h5>
+            <ul className="space-y-1">
+              {factors.map((h) => (
+                <li key={h.code + h.uz_text} className="flex items-start gap-2 text-sm text-slate-500">
+                  <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-slate-300" />
+                  <span>
+                    <span className="mr-1 font-mono text-xs text-slate-400">{h.code}</span>
+                    {h.uz_text}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
         {risk.notes?.map((n) => (
           <p key={n} className="mt-1 text-sm text-slate-500">ℹ️ {n}</p>

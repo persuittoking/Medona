@@ -1,18 +1,21 @@
 """Synthetic perinatal data generator (deterministic with --seed).
 
 ALL DATA IS SYNTHETIC. Assumptions (also in MODEL_CARD.md):
-- Maternal age: mostly 20-34; ~6% under 20 (<18 or 18-19); ~10% aged 35+.
-- Antenatal schedule: booking (mostly 8-12 weeks, ~15% late at 13-24 weeks), then about every
-  4 weeks to 28 weeks, every 2 weeks to 36, then weekly; ~10% of planned visits are missed;
+- Maternal age: mostly 20-34; ~6% under 20 (<18 or 18-19); ~8% aged 35+.
+- Antenatal schedule: booking (mostly 8-12 weeks, ~6% late at 13-24 weeks), then about every
+  4 weeks to 28 weeks, every 2 weeks to 36, then weekly; ~6% of planned visits are missed;
   at most 9 visits are kept per pregnancy.
-- Hemoglobin: mean ~112 g/L, SD ~13, physiological fall in pregnancy; regional shift
+- Hemoglobin: mean ~120 g/L, SD ~11, physiological fall in pregnancy; regional shift
   (lower in Qoraqalpog'iston, see app/geo.py).
 - A subset of pregnancies DETERIORATE: preeclampsia path (rising BP + proteinuria, ~7%),
-  anaemia path (falling Hb, ~8%), fetal growth restriction path (lagging fundal height, ~5%),
-  gestational diabetes path (~6%).
+  anaemia path (falling Hb, ~5-8%), fetal growth restriction path (lagging fundal height, ~5%),
+  gestational diabetes path (~3-5%).
 - Label `adverse_outcome` (composite) comes from a HIDDEN logistic model over risk factors +
   deterioration + noise, with the intercept tuned so the base rate is ~10%. The latent variables
   are never used as features.
+- History / comorbidity prevalences (previous CS ~7% of parous women, chronic disease flags 0.4-3%)
+  are demo assumptions tuned so a mahalla register lands near the target zone mix
+  (~65-75% green / 20-28% yellow / 3-7% red); they are NOT national statistics.
 - Names, PINFL (14 digits) and phone numbers are random and do not belong to real people.
 """
 from __future__ import annotations
@@ -77,7 +80,7 @@ def _age(rng: np.random.Generator) -> float:
         return rng.uniform(15.5, 18.0)
     if u < 0.06:
         return rng.uniform(18.0, 20.0)
-    if u < 0.90:
+    if u < 0.92:
         return rng.uniform(20.0, 35.0)
     return rng.uniform(35.0, 44.0)
 
@@ -88,26 +91,26 @@ def make_pregnancy(rng: np.random.Generator, region: dict, district: dict, seq: 
     age = _age(rng)
     birth = lmp - timedelta(days=int(age * 365.25))
     gravidity = int(1 + rng.poisson(1.6 if age > 22 else 0.5))
-    miscarriages = int(rng.binomial(gravidity - 1, 0.12)) if gravidity > 1 else 0
+    miscarriages = int(rng.binomial(gravidity - 1, 0.05)) if gravidity > 1 else 0
     parity = max(0, gravidity - 1 - miscarriages)
     p = {
-        "previous_cs": parity >= 1 and rng.random() < 0.22,
-        "hist_stillbirth": parity >= 1 and rng.random() < 0.03,
-        "hist_preterm": parity >= 1 and rng.random() < 0.07,
-        "hist_preeclampsia": parity >= 1 and rng.random() < 0.05,
-        "hist_pph": parity >= 1 and rng.random() < 0.04,
+        "previous_cs": parity >= 1 and rng.random() < 0.07,
+        "hist_stillbirth": parity >= 1 and rng.random() < 0.008,
+        "hist_preterm": parity >= 1 and rng.random() < 0.02,
+        "hist_preeclampsia": parity >= 1 and rng.random() < 0.015,
+        "hist_pph": parity >= 1 and rng.random() < 0.015,
         "diabetes": rng.random() < 0.01,
-        "chronic_htn": rng.random() < (0.05 if age >= 35 else 0.015),
-        "heart": rng.random() < 0.01,
-        "kidney": rng.random() < 0.015,
-        "thyroid": rng.random() < 0.03,
+        "chronic_htn": rng.random() < (0.03 if age >= 35 else 0.008),
+        "heart": rng.random() < 0.006,
+        "kidney": rng.random() < 0.008,
+        "thyroid": rng.random() < 0.006,
         "epilepsy": rng.random() < 0.004,
         "multiple_pregnancy": rng.random() < 0.015,
-        "rh_negative": rng.random() < 0.08,
+        "rh_negative": rng.random() < 0.06,
     }
     height = float(np.clip(rng.normal(160, 6), 142, 185))
-    bmi = float(np.clip(rng.normal(24.0, 3.6), 16, 45))
-    booking_w = float(rng.uniform(13, 24)) if rng.random() < 0.15 else float(rng.uniform(7, 12))
+    bmi = float(np.clip(rng.normal(24.0, 3.0), 16, 45))
+    booking_w = float(rng.uniform(13, 24)) if rng.random() < 0.06 else float(rng.uniform(7, 12))
     dist_centre = haversine_km(district["lat"], district["lon"], region["perinatal"]["lat"], region["perinatal"]["lon"])
     patient = {
         "code": f"{region['code']}-{district['code']}-{seq:05d}",
@@ -116,14 +119,14 @@ def make_pregnancy(rng: np.random.Generator, region: dict, district: dict, seq: 
         "phone": "+99890" + "".join(str(d) for d in rng.integers(0, 10, 7)),
         "birth_date": birth,
         "mahalla": f"{rng.choice(MAHALLAS)} MFY",
-        "distance_to_perinatal_km": round(dist_centre + float(rng.uniform(1, 25)), 1),
+        "distance_to_perinatal_km": round(dist_centre + float(rng.uniform(0.2, 25)), 1),  # homes can be next to the centre
     }
     preg = {
         "lmp_date": lmp,
         "booking_date": lmp + timedelta(days=int(booking_w * 7)),
         "gravidity": gravidity, "parity": parity, "miscarriages_count": miscarriages,
         **{k: bool(v) for k, v in p.items()},
-        "interpregnancy_months": int(np.clip(rng.gamma(3.0, 15.0), 4, 160)) if parity >= 1 else None,
+        "interpregnancy_months": int(np.clip(rng.gamma(3.5, 16.0), 4, 160)) if parity >= 1 else None,
         "height_cm": round(height, 1),
         "booking_weight_kg": round(bmi * (height / 100) ** 2, 1),
         "birth_date": birth,
@@ -133,20 +136,20 @@ def make_pregnancy(rng: np.random.Generator, region: dict, district: dict, seq: 
     lat = Latent()
     lat.base_sys = rng.normal(112, 9) + (16 if p["chronic_htn"] else 0) + max(0, bmi - 28) * 0.8
     lat.base_dia = 0.62 * lat.base_sys + rng.normal(2, 5)
-    lat.base_hb = rng.normal(120, 11) + region["hb_shift"]
-    lat.base_glu = rng.normal(4.4, 0.28)
+    lat.base_hb = rng.normal(128, 10) + region["hb_shift"]
+    lat.base_glu = rng.normal(4.4, 0.22)
     pe_risk = -3.4 + 1.5 * p["hist_preeclampsia"] + 1.2 * p["chronic_htn"] + 0.6 * (age >= 35) \
         + 0.5 * (parity == 0) + 0.8 * p["multiple_pregnancy"] + 0.6 * (bmi >= 30) + 0.5 * p["kidney"]
     if rng.random() < 1 / (1 + np.exp(-pe_risk)):
         lat.pe_onset = float(rng.uniform(22, 35))
         lat.pe_rate = float(rng.uniform(1.5, 6.0))
-    if rng.random() < 0.08 + (0.04 if region["hb_shift"] < -5 else 0) + 0.03 * (gravidity >= 4):
+    if rng.random() < 0.05 + (0.03 if region["hb_shift"] < -5 else 0) + 0.02 * (gravidity >= 4):
         lat.anemia_onset = float(rng.uniform(14, 30))
         lat.anemia_rate = float(rng.uniform(0.6, 2.0))
     if rng.random() < 0.05 + 0.04 * (lat.pe_onset is not None) + 0.03 * (age < 18):
         lat.fgr_onset = float(rng.uniform(24, 32))
         lat.fgr_rate = float(rng.uniform(0.25, 0.7))
-    lat.gdm = bool(rng.random() < 0.05 + 0.06 * (bmi >= 30) + 0.03 * (age >= 35)) or p["diabetes"]
+    lat.gdm = bool(rng.random() < 0.02 + 0.05 * (bmi >= 30) + 0.03 * (age >= 35)) or p["diabetes"]
     if rng.random() < 0.03:
         lat.infection_week = float(rng.uniform(10, 38))
     preterm = rng.random() < 0.06 + 0.08 * p["hist_preterm"] + 0.15 * p["multiple_pregnancy"]
@@ -161,7 +164,7 @@ def schedule(rng: np.random.Generator, booking_w: float, upto_w: float, max_visi
         w = w + step + float(rng.uniform(-0.6, 0.6))
         if w > upto_w:
             break
-        if rng.random() < 0.10:  # missed visit
+        if rng.random() < 0.06:  # missed visit
             continue
         weeks.append(round(w, 1))
     if len(weeks) > max_visits:
@@ -262,7 +265,7 @@ def generate_training(n: int = 20000, seed: int = 42, target_rate: float = 0.10)
 
     from app.risk.engine import rule_zone
     from app.risk.features import build_features
-    from app.risk.rules import max_zone, red_rules, yellow_rules
+    from app.risk.rules import combine_factors, max_zone, red_rules, yellow_rules
     from app.risk.trends import trend_hits, trend_zone
 
     rng = np.random.default_rng(seed)
@@ -291,8 +294,9 @@ def generate_training(n: int = 20000, seed: int = 42, target_rate: float = 0.10)
             hist = visits[: k + 1]
             prev = visits[k - 1] if k else None
             feats = build_features(preg, hist)
-            rz = rule_zone(red_rules(preg, hist[-1]) + yellow_rules(preg, hist[-1], prev))
-            tz = trend_zone(trend_hits(preg, hist))
+            th = trend_hits(preg, hist)
+            rz = rule_zone(combine_factors(red_rules(preg, hist[-1]) + yellow_rules(preg, hist[-1], prev), th))
+            tz = trend_zone(th)
             rows.append({"pregnancy_id": pid, "region": rcode, "visit_index": k, **feats,
                          "rule_zone": max_zone(rz, tz), "adverse_outcome": int(y)})
     return pd.DataFrame(rows)

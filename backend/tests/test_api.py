@@ -3,6 +3,7 @@ from datetime import timedelta
 
 from app.db import SessionLocal
 from app.models import Alert, AuditLog, RiskAssessment, Visit, utcnow
+from app.scheduler import ESCALATION_INTERVAL_S, ESCALATION_JOB_ID, escalation_job
 from tests.conftest import CHL, NUK, demo, login
 
 DEMO1_RED_VISIT = {"systolic": 152, "diastolic": 98, "proteinuria": "+2", "symptoms": ["severe_headache"],
@@ -107,6 +108,7 @@ def test_no_alert_when_zone_not_worse(client):
 
 
 def test_escalation_after_sla(client):
+    client.app.state.scheduler.pause()  # run the job by hand, no race with the 30 s timer
     _, preg = demo("QQR-NUK-DEMO2")
     r = client.post("/api/visits", json={"pregnancy_id": preg, "systolic": 165, "diastolic": 112},
                     headers=login(client, NUK, "nurse")).json()
@@ -115,9 +117,33 @@ def test_escalation_after_sla(client):
         a = db.get(Alert, aid)
         a.sla_due_at = utcnow() - timedelta(minutes=1)
         db.commit()
-    alerts = {a["id"]: a for a in client.get("/api/alerts", headers=login(client, NUK, "specialist")).json()}
+    h = login(client, NUK, "specialist")
+    before = {a["id"]: a for a in client.get("/api/alerts", headers=h).json()}
+    assert before[aid]["status"] == "open"  # GET endpoints no longer escalate; the background job does
+    assert escalation_job() >= 1
+    alerts = {a["id"]: a for a in client.get("/api/alerts", headers=h).json()}
     assert alerts[aid]["status"] == "escalated" and alerts[aid]["escalation_level"] == 1
     assert "Oilaviy shifokor" in alerts[aid]["assigned_to"]
+    with SessionLocal() as db:
+        assert db.query(AuditLog).filter_by(action="escalate_alert_l1", entity="alert", entity_id=aid).count() == 1
+    client.app.state.scheduler.resume()
+
+
+def test_escalation_scheduler_started_on_startup(client):
+    sched = client.app.state.scheduler
+    assert sched.running
+    job = sched.get_job(ESCALATION_JOB_ID)
+    assert job is not None and job.trigger.interval.total_seconds() == ESCALATION_INTERVAL_S == 30
+
+
+def test_escalation_job_never_raises(monkeypatch):
+    import app.scheduler as sch
+
+    def boom(_db):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(sch, "run_escalations", boom)
+    assert sch.escalation_job() == 0
 
 
 def test_dashboard_endpoints(client):
@@ -142,3 +168,28 @@ def test_llm_summary_endpoint_template_and_cache(client):
     r2 = client.get(f"/api/llm/summary/{preg}", headers=h).json()
     assert r2["generated_at"] == body["generated_at"]  # served from cache
     assert client.get(f"/api/llm/summary/{preg}", headers=login(client, CHL, "specialist")).status_code == 404
+
+
+def test_patient_without_pregnancy_returns_404_not_500(client):
+    from app.models import Patient
+
+    src_id, _ = demo("QQR-NUK-DEMO3")
+    with SessionLocal() as db:
+        src = db.get(Patient, src_id)
+        p = Patient(code="QQR-NUK-NOPREG", full_name_enc=src.full_name_enc, pinfl_enc=src.pinfl_enc,
+                    phone_enc=src.phone_enc, home_enc=src.home_enc, birth_date=src.birth_date,
+                    polyclinic_id=src.polyclinic_id, mahalla_id=src.mahalla_id,
+                    distance_to_perinatal_km=src.distance_to_perinatal_km, assigned_nurse_id=src.assigned_nurse_id)
+        db.add(p)
+        db.commit()
+        pid = p.id
+    r = client.get(f"/api/patients/{pid}", headers=login(client, NUK, "doctor"))
+    assert r.status_code == 404 and r.json()["detail"] == "Faol homiladorlik topilmadi"
+    # another polyclinic still gets the generic tenant 404, not this message
+    other = client.get(f"/api/patients/{pid}", headers=login(client, CHL, "doctor"))
+    assert other.status_code == 404 and other.json()["detail"] != "Faol homiladorlik topilmadi"
+    with SessionLocal() as db:
+        assert db.query(AuditLog).filter_by(action="view_patient", entity_id=pid).count() == 1
+    # a delivered-only patient (DEMO4) still opens: the card shows the newborn
+    d4, _ = demo("QQR-NUK-DEMO4")
+    assert client.get(f"/api/patients/{d4}", headers=login(client, NUK, "doctor")).status_code == 200

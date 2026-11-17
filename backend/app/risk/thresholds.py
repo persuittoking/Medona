@@ -48,6 +48,12 @@ OVERDUE_DAYS_OTHER = 45
 THIRD_TRIMESTER_WEEKS = 28
 FAR_FROM_PERINATAL_KM = 50
 
+# --- Yellow-rule tiers ---
+# Tier B rules are risk factors for follow-up: alone they do NOT change the zone.
+# YELLOW when >= TIER_B_MIN_FOR_YELLOW factors coincide, or 1 factor + any trend hit.
+TIER_B_RULES = ("Y01", "Y08", "Y11", "Y12", "Y13", "Y15")  # age, BMI, interpregnancy, Rh-, late/overdue, distance
+TIER_B_MIN_FOR_YELLOW = 2
+
 # --- Trend rules (vs previous visit) ---
 TREND_HB_DROP = 15
 TREND_SYS_RISE = 20
@@ -69,7 +75,7 @@ NB_CHECK_BY_DAY = 3
 
 # --- ML probability cut-offs ---
 # BEGIN ML THRESHOLDS (auto-written by backend/ml/train.py — do not edit by hand)
-ML_YELLOW = 0.115
-ML_RED = 0.255
-ML_THRESHOLDS_NOTE = 'chosen 2026-11-17 on calibration split: system recall target 90%; test system sensitivity 89.0%; model e07aca5c61'
+ML_YELLOW = 0.12
+ML_RED = 0.35
+ML_THRESHOLDS_NOTE = 'chosen 2026-11-17 on calibration split: pregnancy-level recall target 85% (flagged from 28 w); test pregnancy-level sensitivity 91.8%, per-visit 63.7%; model 5622c10fe7'
 # END ML THRESHOLDS

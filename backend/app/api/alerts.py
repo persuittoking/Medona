@@ -5,7 +5,7 @@ from app.api.deps import audit
 from app.api.tenancy import Tenant, staff
 from app.models import Alert, Patient, Pregnancy, utcnow
 from app.schemas import ActionIn, AlertOut
-from app.services.alerts import alert_out, run_escalations
+from app.services.alerts import alert_out
 
 router = APIRouter(prefix="/api/alerts", tags=["alerts"])
 
@@ -14,7 +14,6 @@ router = APIRouter(prefix="/api/alerts", tags=["alerts"])
 def list_alerts(status: str | None = None, level: str | None = None, mine: bool = False, limit: int = 200,
                 t: Tenant = Depends(staff())) -> list[dict]:
     db = t.db
-    run_escalations(db)
     stmt = (select(Alert).join(Pregnancy, Alert.pregnancy_id == Pregnancy.id)
             .join(Patient, Pregnancy.patient_id == Patient.id))
     stmt = t.patients(stmt)

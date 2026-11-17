@@ -1,10 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 
-from app.api.tenancy import Tenant, staff
+from app.api.deps import require_admin
 from app.api.patients import risk_out
-from app.llm.summary import build_llm_input, generate_summary
-from app.models import LlmSummaryCache, RiskAssessment, utcnow
+from app.api.tenancy import Tenant, staff
+from app.config import get_settings
+from app.llm.summary import build_llm_input, generate_summary, llm_status
+from app.models import LlmSummaryCache, RiskAssessment, User, utcnow
 from app.services.scoring import preg_dict, visit_dict
 
 router = APIRouter(prefix="/api/llm", tags=["llm"])
@@ -33,3 +35,23 @@ def llm_summary(pregnancy_id: int, refresh: bool = False, t: Tenant = Depends(st
     cached.created_at = utcnow()
     db.commit()
     return {**result, "risk_assessment_id": ra.id, "generated_at": cached.created_at}
+
+
+@router.get("/health")
+def llm_health(_: User = Depends(require_admin)) -> dict:
+    """Admin view of the LLM integration: is a key configured, did the last real call succeed, last error.
+
+    The key itself is never returned. `last_call` is null until the first real call since the backend started.
+    """
+    s = get_settings()
+    st = llm_status()
+    last_call = None if st["last_call_ok"] is None else ("ok" if st["last_call_ok"] else "failed")
+    return {
+        "key_present": bool(s.anthropic_api_key),
+        "mode": "ai" if s.anthropic_api_key else "template",
+        "configured_model": s.llm_model,
+        "last_call": last_call,
+        "last_call_at": st["last_call_at"],
+        "last_model": st["last_model"],
+        "last_error": st["last_error"],
+    }

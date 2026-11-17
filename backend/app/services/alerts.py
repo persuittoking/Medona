@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.models import Alert, User, utcnow
+from app.models import Alert, AuditLog, User, utcnow
 from app.risk.features import gest_weeks
 
 
@@ -24,7 +24,7 @@ def alert_out(a: Alert, db: Session) -> dict:
         "patient_code": pat.code if pat else None,
         "gestational_weeks": gest_weeks(preg.lmp_date, visit_date) if preg else None,
         "mahalla_name": pat.mahalla.name if pat else None,
-        "reasons": [h["uz_text"] for h in (ra.rule_hits + ra.trend_hits)][:4] if ra else [],
+        "reasons": [h["uz_text"] for h in (ra.rule_hits + ra.trend_hits) if h["zone"] != "factor"][:4] if ra else [],
     }
 
 
@@ -50,6 +50,7 @@ def run_escalations(db: Session) -> int:
             a.assigned_user_id = nxt.id
         a.sla_due_at = now + (timedelta(minutes=s.effective_sla_red_minutes) if a.level == "red"
                               else timedelta(hours=s.sla_yellow_hours))
+        db.add(AuditLog(user_id=None, action=f"escalate_alert_l{a.escalation_level}", entity="alert", entity_id=a.id))
     if overdue:
         db.commit()
     return len(overdue)

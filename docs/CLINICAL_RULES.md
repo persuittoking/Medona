@@ -25,7 +25,14 @@ Final zone = max(rule zone, trend zone, ML zone). **The ML model can only raise 
 | R09 | contractions or membrane rupture before 37 weeks | Muddatidan oldin tug'ruq xavfi |
 | R10 | fasting glucose ≥7.0 mmol/L | Och qoringa glyukoza yuqori |
 
-## B. Antenatal — YELLOW (any one → at least YELLOW)
+## B. Antenatal — YELLOW
+
+Two tiers (configured in `backend/app/risk/thresholds.py`, `TIER_B_RULES`):
+
+- **Tier A** — Y02, Y03, Y04, Y05, Y06, Y07, Y09, Y10, Y14: **each one alone → YELLOW**.
+- **Tier B risk factors** — Y01, Y08, Y11, Y12, Y13, Y15: shown on the patient card in grey under
+  "Xavf omillari (kuzatuv uchun)" and used by the ML model, but **alone they do not change the zone**.
+  They give YELLOW only as **Y16** = 2+ Tier B factors together, OR 1 Tier B factor + any trend hit (section C).
 
 | Code | Rule | Uzbek text |
 |---|---|---|
@@ -43,7 +50,8 @@ Final zone = max(rule zone, trend zone, ML zone). **The ML model can only raise 
 | Y12 | Rh-negative | Rezus-manfiy qon guruhi |
 | Y13 | booking >12 weeks, or gap since previous visit >30 days (≥28 weeks) / >45 days (otherwise) | Kuzatuv uzilishi |
 | Y14 | ≥41 weeks, not delivered | Muddatidan o'tgan homiladorlik |
-| Y15 | distance to perinatal centre >50 km AND any other yellow factor | Perinatal markazdan uzoq |
+| Y15 | distance to perinatal centre >50 km | Perinatal markazdan uzoq |
+| Y16 | ≥2 Tier B factors, or 1 Tier B factor + any trend hit → YELLOW | Bir nechta xavf omili birga (…) |
 
 Note (no zone change): hemoglobin 100–109 g/L → "Yengil anemiya — kuzatib boring".
 
@@ -77,5 +85,7 @@ Note (no zone change): hemoglobin 100–109 g/L → "Yengil anemiya — kuzatib 
 
 ## E. ML thresholds
 `ML_YELLOW` / `ML_RED` are written by `backend/ml/train.py`, chosen on a held-out calibration split so that
-the combined system (rules + trends OR ML ≥ yellow) flags ≥90% of adverse outcomes. See
+the combined system (rules + trends OR ML ≥ yellow) flags ≥85% of pregnancies with an adverse outcome
+as YELLOW/RED at least once from 28 weeks (pregnancy-level sensitivity). Per-visit sensitivity is
+reported next to it. See
 `backend/ml/MODEL_CARD.md` and `backend/ml/artifacts/metrics.json`.

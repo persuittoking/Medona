@@ -71,3 +71,58 @@ def test_fallback_on_llm_failure(monkeypatch, exc):
     monkeypatch.setattr(S, "call_claude", boom)
     res, _, _ = S.generate_summary(payload())
     assert res["source"] == "template"
+
+
+# ---------- GET /api/llm/health ----------
+def test_status_records_failure_then_success(monkeypatch):
+    monkeypatch.setattr(S, "get_settings", lambda: type("S", (), {"anthropic_api_key": "sk-test"})())
+    monkeypatch.setattr(S, "_STATUS", dict(S._STATUS))
+
+    def boom(_):
+        raise TimeoutError("read timed out " + "x" * 1000)
+
+    monkeypatch.setattr(S, "call_claude", boom)
+    S.generate_summary(payload())
+    st = S.llm_status()
+    assert st["last_call_ok"] is False and st["last_error"].startswith("TimeoutError: read timed out")
+    assert len(st["last_error"]) <= 300 and st["last_call_at"] is not None
+
+    monkeypatch.setattr(S, "call_claude", lambda p: (S.template_summary(p) | {"source": "ai", "model": "m-1"}, 10, 5))
+    S.generate_summary(payload())
+    st = S.llm_status()
+    assert st["last_call_ok"] is True and st["last_error"] is None and st["last_model"] == "m-1"
+
+
+def test_status_untouched_without_key(monkeypatch):
+    monkeypatch.setattr(S, "get_settings", lambda: type("S", (), {"anthropic_api_key": ""})())
+    monkeypatch.setattr(S, "_STATUS", {"last_call_at": None, "last_call_ok": None, "last_error": None, "last_model": None})
+    S.generate_summary(payload())
+    assert S.llm_status()["last_call_ok"] is None  # template mode is not an LLM call
+
+
+def test_llm_health_endpoint_admin_only(client, monkeypatch):
+    from tests.conftest import NUK, login
+
+    h = login(client, None, "region.admin")
+    body = client.get("/api/llm/health", headers=h).json()
+    assert body["key_present"] is False and body["mode"] == "template"
+    assert set(body) >= {"key_present", "last_call", "last_error", "last_call_at"}
+    for role in ("nurse", "doctor", "specialist"):
+        assert client.get("/api/llm/health", headers=login(client, NUK, role)).status_code == 403
+    assert client.get("/api/llm/health").status_code == 401
+
+    monkeypatch.setattr(S, "_STATUS", {"last_call_at": None, "last_call_ok": False,
+                                       "last_error": "AuthenticationError: invalid x-api-key", "last_model": None})
+    body = client.get("/api/llm/health", headers=login(client, None, "district.admin")).json()
+    assert body["last_call"] == "failed" and "AuthenticationError" in body["last_error"]
+
+
+def test_llm_health_never_returns_the_key(client, monkeypatch):
+    from app.api import llm as llm_api
+    from tests.conftest import login
+
+    secret = "sk-ant-very-secret-key"
+    real = llm_api.get_settings()
+    monkeypatch.setattr(llm_api, "get_settings", lambda: real.model_copy(update={"anthropic_api_key": secret}))
+    r = client.get("/api/llm/health", headers=login(client, None, "region.admin"))
+    assert r.json()["key_present"] is True and secret not in r.text

@@ -16,13 +16,15 @@ packages, trains the model (~1 min) and seeds the DB.
 
 | Script | What it does |
 |---|---|
-| `reset_demo.bat` | Re-seeds the demo DB in ~10 s (stop the backend first) |
+| `reset_demo.bat` | Re-seeds the demo DB in ~15 s (stop the backend first): 50–60 active pregnancies + a few newborns per mahalla, ~70% green / ~25% yellow / ~5% red |
 | `train_model.bat` | Regenerates synthetic data and retrains; prints ROC-AUC / PR-AUC |
 | `run_tests.bat` | Backend tests (pytest) |
 
 Config: `backend\.env` (template: `backend\.env.example`). `ANTHROPIC_API_KEY` empty → AI summary uses the
 template fallback (tagged "Shablon"); with a key it calls `LLM_MODEL` (tagged "AI (Claude)").
-`DEMO_MODE=true` → red-alert SLA is 2 minutes so escalation can be shown live.
+`DEMO_MODE=true` → red-alert SLA is 2 minutes so escalation can be shown live. Escalation runs as an
+APScheduler background job every 30 s (started with the backend). Admins can check the LLM integration at
+`GET /api/llm/health` (key present, last call ok/failed, last error — never the key itself).
 
 ## Organisation
 Region → District → **Polyclinic (oilaviy poliklinika, the tenant)** → Mahalla(s) → Patients.
@@ -41,7 +43,7 @@ home points on the mahalla map. District/region admins see **aggregated counts o
 ## Demo story (3 min)
 1. Login map: the polyclinic's mahalla on satellite imagery. Log in **PL-NUK-001 / nurse** → mahalla map with
    patient homes coloured by zone.
-2. Bemorlar → `QQR-NUK-DEMO1` (19 y, 31 weeks, **YELLOW**: fundal height lag + model) → **+ Yangi tashrif** →
+2. Bemorlar → `QQR-NUK-DEMO1` (19 y, 31 weeks, **YELLOW**: no single rule fires, the model raises it — rising BP, falling Hb) → **+ Yangi tashrif** →
    BP 152/98, protein **+2**, *Kuchli bosh og'rig'i* → live preview turns **RED** (R02) → save.
 3. Log in **PL-NUK-001 / specialist** → Ogohlantirishlar → red alert with SLA countdown → *Qabul qildim*.
 4. Patient card → "Nega bu zona?" + **AI xulosa**.
