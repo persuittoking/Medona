@@ -1,0 +1,38 @@
+"""Field-level encryption (Fernet) for PII columns, plus UI masking helpers."""
+from functools import lru_cache
+
+from cryptography.fernet import Fernet
+
+from app.config import get_settings
+
+
+@lru_cache
+def _fernet() -> Fernet:
+    key = get_settings().fernet_key
+    if not key:
+        raise RuntimeError("FERNET_KEY is not set (see backend/.env.example)")
+    return Fernet(key.encode())
+
+
+def encrypt(value: str) -> str:
+    return _fernet().encrypt(value.encode()).decode()
+
+
+def decrypt(token: str) -> str:
+    return _fernet().decrypt(token.encode()).decode()
+
+
+def mask_pinfl(pinfl: str) -> str:
+    """'31234567890112' -> '3***********12'."""
+    if len(pinfl) < 4:
+        return "*" * len(pinfl)
+    return pinfl[0] + "*" * (len(pinfl) - 3) + pinfl[-2:]
+
+
+def mask_name(full_name: str) -> str:
+    """'Dilnoza Karimova' -> 'D. K.'"""
+    return " ".join(f"{p[0]}." for p in full_name.split() if p)
+
+
+def mask_phone(phone: str) -> str:
+    return phone[:4] + "*" * max(0, len(phone) - 6) + phone[-2:]
