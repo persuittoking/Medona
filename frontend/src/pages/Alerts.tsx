@@ -81,7 +81,7 @@ export default function Alerts() {
                     <ZoneBadge zone={a.level} />
                     <Link to={`/patients/${a.patient_id}`} className="font-mono font-semibold text-brand-700 hover:underline">{a.patient_code}</Link>
                     {a.gestational_weeks != null && <span className="text-sm text-slate-500">{fmtWeeks(a.gestational_weeks)}</span>}
-                    <span className="text-sm text-slate-500">· {a.district_name}</span>
+                    <span className="text-sm text-slate-500">· {a.mahalla_name}</span>
                     {a.escalation_level > 0 && <span className="rounded bg-red-100 px-1.5 text-xs font-semibold text-red-800">⚠️ {a.escalation_level}-daraja eskalatsiya</span>}
                   </div>
                   <ul className="mt-1 text-sm text-slate-700">{a.reasons.map((r) => <li key={r}>• {r}</li>)}</ul>

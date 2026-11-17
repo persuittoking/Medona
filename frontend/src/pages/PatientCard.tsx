@@ -5,6 +5,8 @@ import { CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContai
 import { api } from "../api/client";
 import type { PatientDetail, Visit, Zone } from "../api/types";
 import { AiSummaryPanel } from "../components/AiSummaryPanel";
+import { MahallaMap } from "../components/MahallaMap";
+import { usePolyclinicMap } from "./PolyclinicMap";
 import { RiskExplain } from "../components/RiskExplain";
 import { Empty, ErrorBox, Skeleton, ZoneBadge } from "../components/ui";
 import { ALERT_STATUS_LABEL, DISCLAIMER, PROTEINURIA_LABEL, SYMPTOM_LABEL, ZONE_COLOR } from "../i18n/uz";
@@ -69,10 +71,11 @@ export default function PatientCard() {
   const { id } = useParams();
   const { user } = useAuth();
   const q = useQuery({ queryKey: ["patient", id], queryFn: () => api<PatientDetail>(`/api/patients/${id}`) });
+  const map = usePolyclinicMap();
   const [pii, setPii] = useState<{ full_name: string; pinfl: string; phone: string } | null>(null);
 
   if (q.error) return <ErrorBox error={q.error} />;
-  if (!q.data) return <div className="space-y-4"><Skeleton className="h-28" /><Skeleton className="h-64" /></div>;
+  if (!q.data) return <div className="space-y-6"><Skeleton className="h-28" /><Skeleton className="h-64" /></div>;
   const d = q.data;
   const p = d.pregnancy;
   const ra = d.latest_assessment;
@@ -80,7 +83,7 @@ export default function PatientCard() {
   const canEnter = (user?.role === "nurse" || user?.role === "doctor") && p.status === "active";
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <Link to="/patients" className="text-sm text-brand-700 hover:underline">← Bemorlar ro'yxati</Link>
 
       <div className="card flex flex-wrap items-start justify-between gap-4">
@@ -97,7 +100,7 @@ export default function PatientCard() {
             <span>Yosh: <b>{d.age}</b></span>
             <span>Muddat: <b>{fmtWeeks(p.gestational_weeks)}</b> · TKS: {fmtDate(p.edd)}</span>
             <span>G{p.gravidity} P{p.parity} · TMI {p.bmi_booking ?? "—"}</span>
-            <span>{d.district_name}, {d.mahalla}</span>
+            <span>{d.mahalla} · {d.polyclinic_name}</span>
             <span>Perinatal markazgacha: {Math.round(d.distance_to_perinatal_km)} km</span>
           </div>
           {p.history.length > 0 && <div className="mt-2 text-xs text-slate-500">Anamnez: {p.history.join(", ")}</div>}
@@ -113,7 +116,7 @@ export default function PatientCard() {
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-6 lg:grid-cols-2">
         <div className="card">
           <h3 className="mb-3 font-semibold">Nega bu zona?</h3>
           {ra ? <RiskExplain risk={ra} /> : <Empty text="Hali baholash yo'q" />}
@@ -123,7 +126,7 @@ export default function PatientCard() {
       </div>
 
       {d.visits.length > 0 && (
-        <div className="grid gap-4 lg:grid-cols-3">
+        <div className="grid gap-6 lg:grid-cols-3">
           <MiniChart title="Gemoglobin" unit="g/L" data={chart} lines={[{ key: "hb", name: "Hb", color: "#0f766e" }]}
             refs={[{ y: 100, label: "100", color: "#F59E0B" }, { y: 70, label: "70", color: "#DC2626" }]} />
           <MiniChart title="Arterial bosim" unit="mmHg" data={chart}
@@ -133,12 +136,21 @@ export default function PatientCard() {
         </div>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-6 lg:grid-cols-2">
         <div className="card">
           <h3 className="mb-3 font-semibold">Tashriflar tarixi</h3>
           {d.visits.length === 0 ? <Empty text="Tashriflar yo'q" /> : <ul>{[...d.visits].reverse().map((v) => <VisitRow key={v.id} v={v} />)}</ul>}
         </div>
-        <div className="space-y-4">
+        <div className="space-y-6">
+          {map.data && (
+            <div className="card">
+              <h3 className="mb-1 font-semibold">Uy joylashuvi</h3>
+              <p className="mb-3 text-xs text-slate-500">Shaxsiy ma'lumot — faqat {d.polyclinic_name} xodimlari ko'radi.</p>
+              <MahallaMap height={260} padding={0.08} legend={false}
+                areas={map.data.mahallas.filter((m) => m.id === d.mahalla_id).map((m) => ({ key: String(m.id), boundary: m.boundary }))}
+                dots={[{ key: d.patient_id, lat: d.home.lat, lon: d.home.lon, zone: p.current_zone, label: d.code }]} />
+            </div>
+          )}
           <div className="card">
             <h3 className="mb-3 font-semibold">Ogohlantirishlar tarixi</h3>
             {d.alerts.length === 0 ? <Empty text="Ogohlantirishlar yo'q" /> : (

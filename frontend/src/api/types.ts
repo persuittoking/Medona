@@ -1,13 +1,17 @@
 export type Zone = "red" | "yellow" | "green";
-export type Role = "nurse" | "doctor" | "specialist" | "admin";
+export type Role = "nurse" | "doctor" | "specialist" | "district_admin" | "region_admin";
+export const isAdmin = (r: Role | undefined) => r === "district_admin" || r === "region_admin";
 
 export interface User {
   id: number;
   username: string;
   full_name: string;
   role: Role;
+  polyclinic_id: number | null;
   region_id: number | null;
   district_id: number | null;
+  polyclinic_code: string | null;
+  polyclinic_name: string | null;
   district_name: string | null;
   region_name: string | null;
 }
@@ -60,7 +64,7 @@ export interface Alert {
   patient_id: number | null;
   patient_code: string | null;
   gestational_weeks: number | null;
-  district_name: string | null;
+  mahalla_name: string | null;
   reasons: string[];
 }
 
@@ -99,7 +103,10 @@ export interface PatientDetail {
   age: number;
   district_name: string;
   region_name: string;
+  polyclinic_name: string;
   mahalla: string;
+  mahalla_id: number;
+  home: { lat: number; lon: number };
   distance_to_perinatal_km: number;
   nurse: string | null;
   pregnancy: {
@@ -143,24 +150,13 @@ export interface Summary {
   median_ack_minutes: number | null;
 }
 
-export interface DistrictStat {
-  district_id: number;
-  name: string;
-  lat: number;
-  lon: number;
-  red: number;
-  yellow: number;
-  green: number;
-  total: number;
-  red_share: number;
-}
 
 export interface TopRow {
   patient_id: number;
   pregnancy_id: number;
   code: string;
   name_masked: string;
-  district_name: string;
+  mahalla_name: string;
   gestational_weeks: number;
   zone: Zone;
   risk: number | null;
@@ -177,4 +173,79 @@ export interface AiSummary {
   disclaimer_uz: string;
   risk_assessment_id: number;
   generated_at: string;
+}
+
+export type GeoPolygon = { type: "Polygon"; coordinates: number[][][] };
+
+export interface MahallaGeo {
+  id: number;
+  name: string;
+  boundary: GeoPolygon;
+  centroid: [number, number];
+  demo_boundary: boolean;
+  source: string;
+}
+
+export interface MapPoint {
+  patient_id: number;
+  pregnancy_id: number;
+  code: string;
+  zone: Zone;
+  risk: number | null;
+  lat: number;
+  lon: number;
+}
+
+export interface PolyclinicMapData {
+  polyclinic: { id: number; code: string; name: string; lat: number; lon: number };
+  mahallas: MahallaGeo[];
+  points: MapPoint[];
+}
+
+export interface Territory {
+  code: string;
+  name: string;
+  district: string;
+  mahallas: { name: string; boundary: GeoPolygon }[];
+}
+
+export interface Agg {
+  red: number;
+  yellow: number;
+  green: number;
+  total: number;
+  red_share: number;
+  open_alerts: number;
+}
+
+export interface GeoNode extends Partial<Agg> {
+  id: number;
+  name: string;
+  code?: string;
+  lat: number;
+  lon: number;
+  accessible: boolean;
+  polyclinics?: number;
+  territory?: { name: string; boundary: GeoPolygon }[];
+}
+
+export interface Crumb { level: string; id?: number; name: string }
+
+export interface GeoLevel {
+  level: "country" | "region" | "district";
+  id?: number;
+  name: string;
+  children: GeoNode[];
+  breadcrumb?: Crumb[];
+}
+
+export interface GeoPolyclinic extends Agg {
+  level: "polyclinic";
+  id: number;
+  code: string;
+  name: string;
+  lat: number;
+  lon: number;
+  territory: { name: string; boundary: GeoPolygon }[];
+  breadcrumb: Crumb[];
 }

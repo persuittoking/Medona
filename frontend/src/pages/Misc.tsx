@@ -99,10 +99,10 @@ export function Analytics() {
   );
 }
 
-interface AuditRow { id: number; created_at: string; action: string; entity: string; entity_id: number | null; ip: string | null; user: string; role: string | null }
+interface AuditRow { id: number; created_at: string; action: string; entity: string; entity_id: number | null; ip: string | null; user: string; role: string | null; polyclinic: string | null }
 const ACTION_LABEL: Record<string, string> = {
   login: "Tizimga kirish", view_patient: "Bemor kartasini ko'rish", reveal_pii: "Shaxsiy ma'lumotni ochish",
-  create_visit: "Tashrif kiritish", create_alert: "Ogohlantirish yaratildi", ack_alert: "Ogohlantirishni qabul qilish", resolve_alert: "Ogohlantirishni yopish",
+  create_visit: "Tashrif kiritish", view_home_points: "Uy manzillari xaritasini ko'rish", create_alert: "Ogohlantirish yaratildi", ack_alert: "Ogohlantirishni qabul qilish", resolve_alert: "Ogohlantirishni yopish",
 };
 
 export function Audit() {
@@ -120,10 +120,10 @@ export function Audit() {
       {q.error ? <ErrorBox error={q.error} /> : q.isLoading ? <Skeleton className="h-64" /> : !q.data?.length ? <Empty text="Yozuvlar yo'q" /> : (
         <div className="card overflow-x-auto p-0">
           <table className="w-full min-w-[640px]">
-            <thead className="border-b bg-slate-50"><tr><th className="th">Vaqt</th><th className="th">Foydalanuvchi</th><th className="th">Harakat</th><th className="th">Obyekt</th><th className="th">IP</th></tr></thead>
+            <thead className="border-b bg-slate-50"><tr><th className="th">Vaqt</th><th className="th">Poliklinika</th><th className="th">Foydalanuvchi</th><th className="th">Harakat</th><th className="th">Obyekt</th><th className="th">IP</th></tr></thead>
             <tbody>{q.data.map((r) => (
               <tr key={r.id} className="border-b last:border-0">
-                <td className="td whitespace-nowrap">{fmtDateTime(r.created_at)}</td><td className="td">{r.user}</td>
+                <td className="td whitespace-nowrap">{fmtDateTime(r.created_at)}</td><td className="td font-mono text-xs">{r.polyclinic ?? "—"}</td><td className="td">{r.user}</td>
                 <td className="td">{ACTION_LABEL[r.action] ?? r.action}</td><td className="td font-mono text-xs">{r.entity} #{r.entity_id}</td><td className="td text-xs">{r.ip ?? "—"}</td>
               </tr>
             ))}</tbody>

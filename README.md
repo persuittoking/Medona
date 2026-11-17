@@ -24,20 +24,31 @@ Config: `backend\.env` (template: `backend\.env.example`). `ANTHROPIC_API_KEY` e
 template fallback (tagged "Shablon"); with a key it calls `LLM_MODEL` (tagged "AI (Claude)").
 `DEMO_MODE=true` → red-alert SLA is 2 minutes so escalation can be shown live.
 
-## Demo users (password `demo1234`)
-`nurse.nukus`, `doctor.nukus`, `specialist.nukus`, `admin.qoraqalpogiston`, `nurse.chilonzor`,
-`specialist.chilonzor`, `admin.toshkent`, `admin.fargona` (+ nurse/doctor/specialist per district).
+## Organisation
+Region → District → **Polyclinic (oilaviy poliklinika, the tenant)** → Mahalla(s) → Patients.
+Staff see only their own polyclinic (one central dependency, `backend/app/api/tenancy.py`), including patient
+home points on the mahalla map. District/region admins see **aggregated counts only** (no names, codes or homes).
+
+## Demo logins (password `demo1234`)
+| Poliklinika ID | Login | Role |
+|---|---|---|
+| PL-NUK-001 | nurse / doctor / specialist | Nukus shahri — Navbahor MFY (DEMO1–4 live here) |
+| PL-CHL-001 | nurse / doctor / specialist | Toshkent, Chilonzor — Qatortol MFY |
+| PL-FRG-001 | nurse / doctor / specialist | Farg'ona shahri — Maʻrifat mahallasi |
+| *(empty)* | district.admin | Nukus shahri (aggregates only) |
+| *(empty)* | region.admin | Qoraqalpog'iston (aggregates only) |
 
 ## Demo story (3 min)
-1. Log in as **nurse.nukus** → Bemorlar → `QQR-NUK-DEMO1` (19 y, 31 weeks, **YELLOW**: fundal height lag + model).
-2. **+ Yangi tashrif** → BP 152/98, protein **+2**, chip *Kuchli bosh og'rig'i* → live preview turns **RED**
-   (R02 "Preeklampsiya shubhasi") before saving → Save → toast "Ogohlantirish yuborildi".
-3. Log out → **specialist.nukus** → Ogohlantirishlar → red alert with SLA countdown → *Qabul qildim* + action.
-4. Patient card → "Nega bu zona?" + **AI xulosa** (catalog actions only, disclaimer).
+1. Login map: the polyclinic's mahalla on satellite imagery. Log in **PL-NUK-001 / nurse** → mahalla map with
+   patient homes coloured by zone.
+2. Bemorlar → `QQR-NUK-DEMO1` (19 y, 31 weeks, **YELLOW**: fundal height lag + model) → **+ Yangi tashrif** →
+   BP 152/98, protein **+2**, *Kuchli bosh og'rig'i* → live preview turns **RED** (R02) → save.
+3. Log in **PL-NUK-001 / specialist** → Ogohlantirishlar → red alert with SLA countdown → *Qabul qildim*.
+4. Patient card → "Nega bu zona?" + **AI xulosa**.
+5. Log in **region.admin** → O'zbekiston › Qoraqalpog'iston › Nukus shahri › PL-NUK-001: counts only.
 
-Other demo patients: `DEMO2` (37 y, previous CS, GDM glucose → stable YELLOW), `DEMO3` (healthy GREEN),
-`DEMO4` (delivered; newborn with low birth weight + fast breathing → newborn RED).
+Screenshots: `docs/screenshots/`. Boundary sources: `DATA_SOURCES.md`.
 
 ## Layout
-`backend/app` (FastAPI, SQLAlchemy, risk engine in `app/risk`, LLM in `app/llm`), `backend/ml` (generator,
+`backend/app` (FastAPI, SQLAlchemy, tenancy in `app/api/tenancy.py`, risk engine in `app/risk`, LLM in `app/llm`), `backend/seed` (mahalla boundaries), `backend/ml` (generator,
 training, model card), `frontend/` (React + TS + Vite + Tailwind), `docs/` (roadmap, clinical rules, API contract).

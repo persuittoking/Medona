@@ -8,7 +8,8 @@ export const ROLE_LABEL: Record<Role, string> = {
   nurse: "Patronaj hamshirasi",
   doctor: "Oilaviy shifokor",
   specialist: "OvaBMU mutaxassisi",
-  admin: "Viloyat boshqarmasi",
+  district_admin: "Tuman tibbiyot birlashmasi",
+  region_admin: "Viloyat sog'liqni saqlash boshqarmasi",
 };
 
 export const SYMPTOM_LABEL: Record<string, string> = {
@@ -38,11 +39,20 @@ export const ALERT_STATUS_LABEL: Record<string, string> = {
 export const DISCLAIMER =
   "Bu tizim qaror qabul qilishda yordam beradi, tashxis qo'ymaydi. Yakuniy qarorni shifokor qabul qiladi.";
 
-export const DEMO_USERS: { username: string; role: Role; label: string }[] = [
-  { username: "nurse.nukus", role: "nurse", label: "Hamshira (Nukus)" },
-  { username: "doctor.nukus", role: "doctor", label: "Shifokor (Nukus)" },
-  { username: "specialist.nukus", role: "specialist", label: "OvaBMU mutaxassisi (Nukus)" },
-  { username: "admin.qoraqalpogiston", role: "admin", label: "Viloyat admini (Qoraqalpog'iston)" },
-  { username: "nurse.chilonzor", role: "nurse", label: "Hamshira (Chilonzor)" },
-  { username: "admin.toshkent", role: "admin", label: "Admin (Toshkent shahri)" },
+export const DEMO_USERS: { polyclinic: string; username: string; role: Role; label: string }[] = [
+  { polyclinic: "PL-NUK-001", username: "nurse", role: "nurse", label: "Hamshira" },
+  { polyclinic: "PL-NUK-001", username: "doctor", role: "doctor", label: "Oilaviy shifokor" },
+  { polyclinic: "PL-NUK-001", username: "specialist", role: "specialist", label: "OvaBMU mutaxassisi" },
+  { polyclinic: "PL-CHL-001", username: "nurse", role: "nurse", label: "Hamshira (Chilonzor)" },
+  { polyclinic: "", username: "district.admin", role: "district_admin", label: "Tuman admini" },
+  { polyclinic: "", username: "region.admin", role: "region_admin", label: "Viloyat admini" },
 ];
+
+export const SATELLITE = {
+  url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+  attribution: "Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+};
+export const STREETS = {
+  url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+  attribution: "&copy; OpenStreetMap contributors",
+};

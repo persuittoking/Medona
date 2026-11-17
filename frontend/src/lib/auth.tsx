@@ -5,7 +5,7 @@ import type { User } from "../api/types";
 interface AuthCtx {
   user: User | null;
   loading: boolean;
-  login: (username: string, password: string) => Promise<User>;
+  login: (polyclinicCode: string, username: string, password: string) => Promise<User>;
   logout: () => void;
 }
 
@@ -23,10 +23,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => setLoading(false));
   }, []);
 
-  const login = useCallback(async (username: string, password: string) => {
+  const login = useCallback(async (polyclinicCode: string, username: string, password: string) => {
     const res = await api<{ access_token: string; user: User }>("/api/auth/login", {
       method: "POST",
-      json: { username, password },
+      json: { polyclinic_code: polyclinicCode.trim() || null, username, password },
     });
     setToken(res.access_token);
     setUser(res.user);
