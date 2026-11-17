@@ -14,7 +14,7 @@ from app.db import Base, SessionLocal, engine
 from app.geo import REGIONS
 from app.models import (
     Alert, AuditLog, District, Facility, Newborn, NewbornCheck, Patient, Pregnancy, Region, RiskAssessment,
-    User, Visit,
+    User, Visit, utcnow,
 )
 from app.risk.newborn import newborn_hits, newborn_zone
 from app.security.auth import hash_password
@@ -87,7 +87,8 @@ def _score_history(db, rng, pr: Pregnancy, visits: list[dict], nurse: User | Non
         db.flush()
         hist.append(visit_dict(v))
         res = score_pregnancy(preg_dict(pr), hist, prev_ml_prob=prev_prob)
-        at = datetime.combine(v["visit_date"], datetime.min.time()) + timedelta(hours=10, minutes=int(rng.integers(0, 300)))
+        at = datetime.combine(v["visit_date"], datetime.min.time()) + timedelta(hours=5, minutes=int(rng.integers(0, 300)))
+        at = min(at, utcnow() - timedelta(minutes=5))  # never in the future
         ra = store_assessment(db, pr, row, res, created_at=at)
         alert = create_alert_if_worse(db, pr, zone, ra, now=at)
         if alert is not None and (today - v["visit_date"]).days > 2:
