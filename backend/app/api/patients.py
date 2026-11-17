@@ -1,12 +1,14 @@
 from datetime import date, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import selectinload
 
-from app.api.deps import audit, can_access_patient, current_user, scope_patients
+from app.api.deps import audit
+from app.api.tenancy import Tenant, staff
 from app.db import get_db
 from app.models import Alert, Patient, Pregnancy, RiskAssessment, User, Visit
+from app.services.geo import decrypt_home
 from app.risk import thresholds as T
 from app.risk.features import bmi, gest_weeks
 from app.schemas import PatientDetail, PatientRow, PiiOut
@@ -46,18 +48,19 @@ def risk_out(ra: RiskAssessment | None) -> dict | None:
 
 
 @router.get("", response_model=list[PatientRow])
-def list_patients(zone: str | None = None, district_id: int | None = None, trimester: int | None = Query(None, ge=1, le=3),
+def list_patients(zone: str | None = None, mahalla_id: int | None = None, trimester: int | None = Query(None, ge=1, le=3),
                   overdue: bool | None = None, q: str | None = None, status: str = "active",
-                  user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[dict]:
+                  t: Tenant = Depends(staff())) -> list[dict]:
+    db = t.db
     last_visit = select(Visit.pregnancy_id, func.max(Visit.visit_date).label("last")).group_by(Visit.pregnancy_id).subquery()
     stmt = (select(Patient, Pregnancy, last_visit.c.last).join(Pregnancy, Pregnancy.patient_id == Patient.id)
             .outerjoin(last_visit, last_visit.c.pregnancy_id == Pregnancy.id)
-            .where(Pregnancy.status == status).options(selectinload(Patient.district)))
-    stmt = scope_patients(stmt, user)
+            .where(Pregnancy.status == status).options(selectinload(Patient.mahalla), selectinload(Patient.polyclinic)))
+    stmt = t.patients(stmt)
     if zone:
         stmt = stmt.where(Pregnancy.current_zone == zone)
-    if district_id:
-        stmt = stmt.where(Patient.district_id == district_id)
+    if mahalla_id:
+        stmt = stmt.where(Patient.mahalla_id == mahalla_id)
     if q:
         stmt = stmt.where(Patient.code.ilike(f"%{q.strip()}%"))
     rows = []
@@ -72,25 +75,16 @@ def list_patients(zone: str | None = None, district_id: int | None = None, trime
                      "name_masked": mask_name(decrypt(pat.full_name_enc)), "age": _age(pat.birth_date),
                      "gestational_weeks": gw, "trimester": tri, "zone": preg.current_zone,
                      "risk": preg.current_risk_score, "last_visit_date": last, "overdue": od,
-                     "district_name": pat.district.name, "mahalla": pat.mahalla})
+                     "district_name": pat.polyclinic.district.name, "mahalla": pat.mahalla.name})
     order = {"red": 0, "yellow": 1, "green": 2}
     rows.sort(key=lambda r: (order[r["zone"]], -(r["risk"] or 0)))
     return rows
 
 
-def _load_patient(db: Session, patient_id: int, user: User) -> Patient:
-    pat = db.get(Patient, patient_id)
-    if pat is None:
-        raise HTTPException(404, "Bemor topilmadi")
-    if not can_access_patient(user, pat):
-        raise HTTPException(403, "Bu bemor sizning hududingizga tegishli emas")
-    return pat
-
-
 @router.get("/{patient_id}", response_model=PatientDetail)
-def patient_detail(patient_id: int, request: Request, user: User = Depends(current_user),
-                   db: Session = Depends(get_db)) -> dict:
-    pat = _load_patient(db, patient_id, user)
+def patient_detail(patient_id: int, request: Request, t: Tenant = Depends(staff())) -> dict:
+    db, user = t.db, t.user
+    pat = t.get_patient(patient_id)
     preg = sorted(pat.pregnancies, key=lambda p: (p.status != "active", -p.id))[0]
     audit(db, user, "view_patient", "patient", pat.id, request)
     db.commit()
@@ -109,8 +103,11 @@ def patient_detail(patient_id: int, request: Request, user: User = Depends(curre
     return {
         "patient_id": pat.id, "code": pat.code, "name_masked": mask_name(decrypt(pat.full_name_enc)),
         "pinfl_masked": mask_pinfl(decrypt(pat.pinfl_enc)), "phone_masked": mask_phone(decrypt(pat.phone_enc)),
-        "age": _age(pat.birth_date), "district_name": pat.district.name, "region_name": pat.district.region.name,
-        "mahalla": pat.mahalla, "distance_to_perinatal_km": pat.distance_to_perinatal_km,
+        "age": _age(pat.birth_date), "district_name": pat.polyclinic.district.name,
+        "region_name": pat.polyclinic.district.region.name, "polyclinic_name": pat.polyclinic.name,
+        "mahalla": pat.mahalla.name, "mahalla_id": pat.mahalla_id,
+        "home": dict(zip(("lat", "lon"), decrypt_home(pat.home_enc))),
+        "distance_to_perinatal_km": pat.distance_to_perinatal_km,
         "nurse": nurse.full_name if nurse else None,
         "pregnancy": {
             "id": preg.id, "status": preg.status, "lmp_date": preg.lmp_date, "booking_date": preg.booking_date,
@@ -130,9 +127,10 @@ def patient_detail(patient_id: int, request: Request, user: User = Depends(curre
 
 
 @router.post("/{patient_id}/reveal", response_model=PiiOut)
-def reveal_pii(patient_id: int, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+def reveal_pii(patient_id: int, request: Request, t: Tenant = Depends(staff())) -> dict:
     """Show full name / PINFL / phone. Every call is written to the audit log."""
-    pat = _load_patient(db, patient_id, user)
+    db, user = t.db, t.user
+    pat = t.get_patient(patient_id)
     audit(db, user, "reveal_pii", "patient", pat.id, request)
     db.commit()
     return {"full_name": decrypt(pat.full_name_enc), "pinfl": decrypt(pat.pinfl_enc), "phone": decrypt(pat.phone_enc)}

@@ -1,22 +1,20 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 
-from app.api.deps import current_user, get_pregnancy_checked
+from app.api.tenancy import Tenant, staff
 from app.api.patients import risk_out
-from app.db import get_db
 from app.llm.summary import build_llm_input, generate_summary
-from app.models import LlmSummaryCache, RiskAssessment, User, utcnow
+from app.models import LlmSummaryCache, RiskAssessment, utcnow
 from app.services.scoring import preg_dict, visit_dict
 
 router = APIRouter(prefix="/api/llm", tags=["llm"])
 
 
 @router.get("/summary/{pregnancy_id}")
-def llm_summary(pregnancy_id: int, refresh: bool = False, user: User = Depends(current_user),
-                db: Session = Depends(get_db)) -> dict:
+def llm_summary(pregnancy_id: int, refresh: bool = False, t: Tenant = Depends(staff())) -> dict:
     """AI summary of the latest assessment. Cached per risk assessment; ?refresh=true regenerates."""
-    preg = get_pregnancy_checked(db, pregnancy_id, user)
+    db = t.db
+    preg = t.get_pregnancy(pregnancy_id)
     ra = db.scalars(select(RiskAssessment).where(RiskAssessment.pregnancy_id == preg.id)
                     .order_by(RiskAssessment.id.desc())).first()
     if ra is None:

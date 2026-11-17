@@ -1,7 +1,7 @@
 """ORM models. *_enc columns hold Fernet-encrypted PII."""
 from datetime import date, datetime, timezone
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -32,22 +32,45 @@ class District(Base):
     region: Mapped[Region] = relationship(back_populates="districts")
 
 
-class Facility(Base):
-    __tablename__ = "facilities"
+class Polyclinic(Base):
+    """Oilaviy poliklinika: the TENANT. Serves 1..N mahallas."""
+    __tablename__ = "polyclinics"
     id: Mapped[int] = mapped_column(primary_key=True)
-    district_id: Mapped[int] = mapped_column(ForeignKey("districts.id"))
+    code: Mapped[str] = mapped_column(String(16), unique=True)  # e.g. PL-NUK-001
     name: Mapped[str] = mapped_column(String(160))
-    kind: Mapped[str] = mapped_column(String(40))  # oilaviy_poliklinika | ttb | perinatal_markaz
+    district_id: Mapped[int] = mapped_column(ForeignKey("districts.id"), index=True)
+    address: Mapped[str] = mapped_column(String(200))
     lat: Mapped[float] = mapped_column(Float)
     lon: Mapped[float] = mapped_column(Float)
+    district: Mapped[District] = relationship()
+    mahallas: Mapped[list["Mahalla"]] = relationship(back_populates="polyclinic")
+
+
+class Mahalla(Base):
+    __tablename__ = "mahallas"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    polyclinic_id: Mapped[int] = mapped_column(ForeignKey("polyclinics.id"), index=True)
+    boundary_geojson: Mapped[dict] = mapped_column(JSON)  # GeoJSON Polygon geometry (lon, lat)
+    boundary_source: Mapped[str] = mapped_column(String(200))
+    demo_boundary: Mapped[bool] = mapped_column(Boolean, default=True)
+    centroid_lat: Mapped[float] = mapped_column(Float)
+    centroid_lon: Mapped[float] = mapped_column(Float)
+    polyclinic: Mapped[Polyclinic] = relationship(back_populates="mahallas")
+
+
+POLYCLINIC_ROLES = ("nurse", "doctor", "specialist")
+ADMIN_ROLES = ("district_admin", "region_admin")
 
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (UniqueConstraint("polyclinic_id", "username", name="uq_user_polyclinic_username"),)
     id: Mapped[int] = mapped_column(primary_key=True)
-    username: Mapped[str] = mapped_column(String(64), unique=True)
+    username: Mapped[str] = mapped_column(String(64))
     full_name: Mapped[str] = mapped_column(String(120))
-    role: Mapped[str] = mapped_column(String(16))  # nurse | doctor | specialist | admin
+    role: Mapped[str] = mapped_column(String(16))  # nurse | doctor | specialist | district_admin | region_admin
+    polyclinic_id: Mapped[int | None] = mapped_column(ForeignKey("polyclinics.id"), index=True)
     region_id: Mapped[int | None] = mapped_column(ForeignKey("regions.id"))
     district_id: Mapped[int | None] = mapped_column(ForeignKey("districts.id"))
     telegram_chat_id: Mapped[str | None] = mapped_column(String(32))
@@ -61,12 +84,14 @@ class Patient(Base):
     full_name_enc: Mapped[str] = mapped_column(Text)
     pinfl_enc: Mapped[str] = mapped_column(Text)
     phone_enc: Mapped[str] = mapped_column(Text)
+    home_enc: Mapped[str] = mapped_column(Text)  # encrypted "lat,lon" — personal data, own polyclinic only
     birth_date: Mapped[date] = mapped_column(Date)
-    district_id: Mapped[int] = mapped_column(ForeignKey("districts.id"), index=True)
-    mahalla: Mapped[str] = mapped_column(String(120))
+    polyclinic_id: Mapped[int] = mapped_column(ForeignKey("polyclinics.id"), index=True)  # tenant key
+    mahalla_id: Mapped[int] = mapped_column(ForeignKey("mahallas.id"), index=True)
     distance_to_perinatal_km: Mapped[float] = mapped_column(Float)
     assigned_nurse_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True)
-    district: Mapped[District] = relationship()
+    polyclinic: Mapped[Polyclinic] = relationship()
+    mahalla: Mapped[Mahalla] = relationship()
     pregnancies: Mapped[list["Pregnancy"]] = relationship(back_populates="patient")
 
 
@@ -214,3 +239,4 @@ class AuditLog(Base):
 
 
 Index("ix_visits_preg_date", Visit.pregnancy_id, Visit.visit_date)
+Index("ix_patients_tenant", Patient.polyclinic_id, Patient.id)

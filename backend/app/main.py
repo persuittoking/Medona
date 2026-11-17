@@ -6,7 +6,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import alerts, auth, dashboard, llm, patients, visits
+from app.api import alerts, auth, dashboard, geo, llm, patients, visits
 from app.config import get_settings
 from app.db import Base, SessionLocal, engine
 from app.risk.ml import load_model
@@ -40,7 +40,7 @@ app = FastAPI(title="OnaRadar API", version="0.1.0", lifespan=lifespan,
               description="Perinatal early-warning registry (decision support, synthetic demo data).")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
                    allow_methods=["*"], allow_headers=["*"])
-for r in (auth.router, patients.router, visits.router, alerts.router, dashboard.router, llm.router):
+for r in (auth.router, patients.router, visits.router, alerts.router, dashboard.router, geo.router, llm.router):
     app.include_router(r)
 
 

@@ -7,12 +7,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.risk.features import SYMPTOMS
 
 Zone = Literal["red", "yellow", "green"]
-Role = Literal["nurse", "doctor", "specialist", "admin"]
+Role = Literal["nurse", "doctor", "specialist", "district_admin", "region_admin"]
 Proteinuria = Literal["neg", "trace", "+1", "+2", "+3"]
 Symptom = Literal[tuple(SYMPTOMS)]  # type: ignore[valid-type]
 
 
 class LoginIn(BaseModel):
+    polyclinic_code: str | None = None  # required for polyclinic staff, empty for district/region admins
     username: str
     password: str
 
@@ -23,8 +24,11 @@ class UserOut(BaseModel):
     username: str
     full_name: str
     role: Role
+    polyclinic_id: int | None
     region_id: int | None
     district_id: int | None
+    polyclinic_code: str | None = None
+    polyclinic_name: str | None = None
     district_name: str | None = None
     region_name: str | None = None
 
@@ -111,7 +115,7 @@ class AlertOut(BaseModel):
     patient_id: int | None
     patient_code: str | None
     gestational_weeks: float | None
-    district_name: str | None
+    mahalla_name: str | None
     reasons: list[str]
 
 
@@ -178,7 +182,10 @@ class PatientDetail(BaseModel):
     age: int
     district_name: str
     region_name: str
+    polyclinic_name: str
     mahalla: str
+    mahalla_id: int
+    home: dict[str, float]
     distance_to_perinatal_km: float
     nurse: str | None
     pregnancy: PregnancyOut

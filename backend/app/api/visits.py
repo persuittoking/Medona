@@ -1,12 +1,11 @@
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy.orm import Session
 
-from app.api.deps import audit, current_user, get_pregnancy_checked, require_roles
+from app.api.deps import audit
+from app.api.tenancy import Tenant, staff
 from app.api.patients import risk_out
-from app.db import get_db
-from app.models import User, Visit
+from app.models import Visit
 from app.risk.features import gest_weeks
 from app.schemas import RiskOut, VisitCreatedOut, VisitIn
 from app.services.alerts import alert_out
@@ -25,16 +24,16 @@ def _visit_payload(body: VisitIn, lmp: date) -> dict:
 
 
 @router.post("/risk/preview", response_model=RiskOut)
-def risk_preview(body: VisitIn, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+def risk_preview(body: VisitIn, t: Tenant = Depends(staff())) -> dict:
     """Score a visit WITHOUT saving anything (live preview while the nurse types)."""
-    preg = get_pregnancy_checked(db, body.pregnancy_id, user)
-    return score_new_visit(db, preg, _visit_payload(body, preg.lmp_date))
+    preg = t.get_pregnancy(body.pregnancy_id)
+    return score_new_visit(t.db, preg, _visit_payload(body, preg.lmp_date))
 
 
 @router.post("/visits", response_model=VisitCreatedOut, status_code=201)
-def create_visit(body: VisitIn, request: Request, user: User = Depends(require_roles("nurse", "doctor")),
-                 db: Session = Depends(get_db)) -> dict:
-    preg = get_pregnancy_checked(db, body.pregnancy_id, user)
+def create_visit(body: VisitIn, request: Request, t: Tenant = Depends(staff("nurse", "doctor"))) -> dict:
+    db, user = t.db, t.user
+    preg = t.get_pregnancy(body.pregnancy_id)
     if preg.status != "active":
         raise HTTPException(409, "Bu homiladorlik faol emas")
     payload = _visit_payload(body, preg.lmp_date)

@@ -65,8 +65,8 @@ def store_assessment(db: Session, preg: Pregnancy, visit: Visit, result: dict,
     return ra
 
 
-def district_specialist(db: Session, district_id: int) -> User | None:
-    return db.scalars(select(User).where(User.role == "specialist", User.district_id == district_id)
+def polyclinic_specialist(db: Session, polyclinic_id: int) -> User | None:
+    return db.scalars(select(User).where(User.role == "specialist", User.polyclinic_id == polyclinic_id)
                       .order_by(User.id)).first()
 
 
@@ -79,7 +79,7 @@ def create_alert_if_worse(db: Session, preg: Pregnancy, old_zone: str, ra: RiskA
     now = now or utcnow()
     due = now + (timedelta(minutes=s.effective_sla_red_minutes) if ra.zone == "red"
                  else timedelta(hours=s.sla_yellow_hours))
-    spec = district_specialist(db, preg.patient.district_id)
+    spec = polyclinic_specialist(db, preg.patient.polyclinic_id)
     alert = Alert(risk_assessment_id=ra.id, pregnancy_id=preg.id, level=ra.zone, status="open",
                   assigned_user_id=spec.id if spec else None, sla_due_at=due, created_at=now)
     db.add(alert)

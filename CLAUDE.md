@@ -7,11 +7,14 @@ newborns in Uzbekistan. It is the solution to national AI hackathon problem #9:
 and newborns with Red / Yellow / Green zones and automatically notify OvaBMU specialists
 when results get worse.
 
+Organisation: Region → District → Polyclinic (oilaviy poliklinika, the TENANT) → Mahalla(s) → Patients.
+All patient-level access goes through backend/app/api/tenancy.py (filter by polyclinic_id). Admins see aggregates only.
+
 Users and roles:
 - `nurse` (patronaj hamshirasi): enters visits for patients in her mahalla, mobile-first.
 - `doctor` (oilaviy shifokor): sees all patients in the district, enters visits.
 - `specialist` (OvaBMU mutaxassisi): receives alerts, must acknowledge red alerts within the SLA.
-- `admin` (viloyat sog'liqni saqlash boshqarmasi): regional dashboard, model analytics, audit log.
+- `district_admin` / `region_admin`: aggregated maps (counts only, no names or home points), model analytics, audit log.
 
 Core loop: a visit is saved → the risk engine scores it (clinical rules + trend rules + ML)
 → a zone is assigned → if the zone gets worse (especially → RED), an alert is created

@@ -1,5 +1,6 @@
-"""Reset and seed the database with SYNTHETIC demo data.
+"""Reset and seed the database with SYNTHETIC demo data (multi-tenant by polyclinic).
 
+Hierarchy: Region -> District -> Polyclinic (tenant) -> Mahalla -> Patients (home point inside the mahalla polygon).
 Usage (from backend/):  .venv\\Scripts\\python -m app.seed [--n 300] [--seed 7]
 """
 from __future__ import annotations
@@ -11,21 +12,22 @@ from datetime import date, datetime, timedelta
 import numpy as np
 
 from app.db import Base, SessionLocal, engine
-from app.geo import REGIONS
+from app.geo import POLYCLINICS, REGIONS, haversine_km
 from app.models import (
-    Alert, AuditLog, District, Facility, Newborn, NewbornCheck, Patient, Pregnancy, Region, RiskAssessment,
-    User, Visit, utcnow,
+    Alert, AuditLog, District, Mahalla, Newborn, NewbornCheck, Patient, Polyclinic, Pregnancy, Region,
+    RiskAssessment, User, Visit, utcnow,
 )
+from app.risk.engine import score_pregnancy
 from app.risk.newborn import newborn_hits, newborn_zone
 from app.security.auth import hash_password
 from app.security.crypto import encrypt
+from app.services.geo import encrypt_home, sample_points, validate_home
 from app.services.scoring import apply_assessment, create_alert_if_worse, preg_dict, store_assessment, visit_dict
-from app.risk.engine import score_pregnancy
 from ml.generate_synthetic import make_pregnancy, make_visits
+from seed.fetch_mahallas import as_shape
+from seed.fetch_mahallas import load as load_boundary
 
 DEMO_PASSWORD = "demo1234"
-DISTRICT_SLUG = {"NUK": "nukus", "CHL": "chilonzor"}
-REGION_ADMIN = {"QQR": "admin.qoraqalpogiston", "TSH": "admin.toshkent", "FAR": "admin.fargona"}
 ACTIONS = [
     "Bemor bilan telefon orqali bog'lanildi, perinatal markazga yo'llandi",
     "Arterial bosim qayta o'lchandi, shifokor ko'rigiga chaqirildi",
@@ -41,32 +43,49 @@ PREG_KEYS = [
 ]
 
 
-def _users(db, region: Region, rdef: dict, districts: dict[str, District], pw: str) -> dict[str, User]:
-    out: dict[str, User] = {}
-    admin = User(username=REGION_ADMIN[rdef["code"]], full_name=f"{rdef['name']} sog'liqni saqlash boshqarmasi",
-                 role="admin", region_id=region.id, password_hash=pw)
-    db.add(admin)
-    out["admin"] = admin
-    for dcode, d in districts.items():
-        slug = DISTRICT_SLUG.get(dcode, dcode.lower())
+class Tenant:
+    """Seed-time context of one polyclinic: its mahalla, staff and a pool of home points inside the polygon."""
+
+    def __init__(self, db, rng, pdef: dict, rdef: dict, ddef: dict, district: District, pw: str):
+        self.pdef, self.rdef, self.ddef, self.district = pdef, rdef, ddef, district
+        feat = load_boundary(pdef["mahalla_key"])
+        poly = as_shape(feat)
+        self.polyclinic = Polyclinic(code=pdef["code"], name=pdef["name"], district_id=district.id,
+                                     address=pdef["address"], lat=round(poly.centroid.y, 6), lon=round(poly.centroid.x, 6))
+        db.add(self.polyclinic)
+        db.flush()
+        props = feat["properties"]
+        self.mahalla = Mahalla(name=props["name"], polyclinic_id=self.polyclinic.id, boundary_geojson=feat["geometry"],
+                               boundary_source=props["source"], demo_boundary=bool(props.get("demo_boundary", True)),
+                               centroid_lat=round(poly.centroid.y, 6), centroid_lon=round(poly.centroid.x, 6))
+        db.add(self.mahalla)
+        self.users: dict[str, User] = {}
         for role, title in [("nurse", "Patronaj hamshirasi"), ("doctor", "Oilaviy shifokor"),
                             ("specialist", "OvaBMU mutaxassisi")]:
-            u = User(username=f"{role}.{slug}", full_name=f"{title} ({d.name})", role=role,
-                     region_id=region.id, district_id=d.id, password_hash=pw)
+            u = User(username=role, full_name=f"{title} ({pdef['code']})", role=role, polyclinic_id=self.polyclinic.id,
+                     district_id=district.id, region_id=district.region_id, password_hash=pw)
             db.add(u)
-            out[f"{role}.{dcode}"] = u
-    db.flush()
-    return out
+            self.users[role] = u
+        db.flush()
+        self._homes = iter(sample_points(feat["geometry"], 500, rng))
+        self._seq = 400
 
+    def next_code(self) -> int:
+        self._seq += 1
+        return self._seq
 
-def _add_patient(db, p: dict, district: District, nurse: User | None) -> Patient:
-    pat = Patient(code=p["code"], full_name_enc=encrypt(p["full_name"]), pinfl_enc=encrypt(p["pinfl"]),
-                  phone_enc=encrypt(p["phone"]), birth_date=p["birth_date"], district_id=district.id,
-                  mahalla=p["mahalla"], distance_to_perinatal_km=p["distance_to_perinatal_km"],
-                  assigned_nurse_id=nurse.id if nurse else None)
-    db.add(pat)
-    db.flush()
-    return pat
+    def add_patient(self, db, p: dict) -> Patient:
+        lat, lon = next(self._homes)
+        validate_home(self.mahalla.boundary_geojson, lat, lon)
+        per = self.rdef["perinatal"]
+        pat = Patient(code=p["code"], full_name_enc=encrypt(p["full_name"]), pinfl_enc=encrypt(p["pinfl"]),
+                      phone_enc=encrypt(p["phone"]), home_enc=encrypt_home(lat, lon), birth_date=p["birth_date"],
+                      polyclinic_id=self.polyclinic.id, mahalla_id=self.mahalla.id,
+                      distance_to_perinatal_km=round(haversine_km(lat, lon, per["lat"], per["lon"]), 1),
+                      assigned_nurse_id=self.users["nurse"].id)
+        db.add(pat)
+        db.flush()
+        return pat
 
 
 def _add_pregnancy(db, pat: Patient, preg: dict, status: str = "active") -> Pregnancy:
@@ -104,22 +123,21 @@ def _score_history(db, rng, pr: Pregnancy, visits: list[dict], nurse: User | Non
         apply_assessment(pr, ra)
 
 
-def _demo_patients(db, rng, districts: dict[str, District], users: dict[str, User], today: date) -> None:
-    nuk, nurse = districts["NUK"], users["nurse.NUK"]
+def _demo_patients(db, rng, t: Tenant, today: date) -> None:
+    nurse = t.users["nurse"]
 
     def base(code, name, age, weeks, **preg_over):
         lmp = today - timedelta(days=int(weeks * 7))
         birth = lmp - timedelta(days=int(age * 365.25) + 30)
         p = {"code": code, "full_name": name, "pinfl": f"4{birth:%d%m%y}{rng.integers(1000000, 9999999)}",
-             "phone": "+99890" + str(rng.integers(1000000, 9999999)), "birth_date": birth,
-             "mahalla": "Navbahor MFY", "distance_to_perinatal_km": 21.0}
+             "phone": "+99890" + str(rng.integers(1000000, 9999999)), "birth_date": birth}
         preg = {"lmp_date": lmp, "booking_date": lmp + timedelta(days=70), "gravidity": 1, "parity": 0,
                 "previous_cs": False, "hist_stillbirth": False, "hist_preterm": False, "miscarriages_count": 0,
                 "hist_preeclampsia": False, "hist_pph": False, "diabetes": False, "chronic_htn": False,
                 "heart": False, "kidney": False, "thyroid": False, "epilepsy": False,
                 "multiple_pregnancy": False, "rh_negative": False, "interpregnancy_months": None,
                 "height_cm": 162.0, "booking_weight_kg": 58.0, **preg_over}
-        pat = _add_patient(db, p, nuk, nurse)
+        pat = t.add_patient(db, p)
         return pat, _add_pregnancy(db, pat, preg), lmp
 
     def v(lmp, w, s, d, hb, wt, prot="neg", glu=4.4, fundal=None, syms=(), fhr=None):
@@ -192,49 +210,58 @@ def _add_newborn(db, pr: Pregnancy, birth: date, ga: float, bw: int, apgar: int,
     return nb
 
 
+def reset_schema() -> None:
+    """Drop EVERY existing table (also ones from older schema versions) and recreate the current schema."""
+    from sqlalchemy import MetaData, text
+
+    with engine.begin() as conn:
+        if engine.dialect.name == "sqlite":
+            conn.execute(text("PRAGMA foreign_keys=OFF"))
+        old = MetaData()
+        old.reflect(bind=conn)
+        old.drop_all(bind=conn)
+        if engine.dialect.name == "sqlite":
+            conn.execute(text("PRAGMA foreign_keys=ON"))
+    Base.metadata.create_all(engine)
+
+
 def seed(n: int = 300, seed_value: int = 7) -> dict:
     t0 = time.time()
     rng = np.random.default_rng(seed_value)
     today = date.today()
-    Base.metadata.drop_all(engine)
-    Base.metadata.create_all(engine)
+    reset_schema()
     pw = hash_password(DEMO_PASSWORD)
     with SessionLocal() as db:
-        all_d: list[tuple[dict, dict, District, dict[str, User]]] = []
-        demo_ctx = None
+        tenants: dict[str, Tenant] = {}
         for rdef in REGIONS:
             region = Region(code=rdef["code"], name=rdef["name"], lat=rdef["lat"], lon=rdef["lon"])
             db.add(region)
             db.flush()
-            districts: dict[str, District] = {}
             for ddef in rdef["districts"]:
                 d = District(region_id=region.id, code=ddef["code"], name=ddef["name"], lat=ddef["lat"], lon=ddef["lon"])
                 db.add(d)
-                districts[ddef["code"]] = d
-            db.flush()
-            for ddef in rdef["districts"]:
-                db.add(Facility(district_id=districts[ddef["code"]].id, name=f"{ddef['name']} oilaviy poliklinikasi",
-                                kind="oilaviy_poliklinika", lat=ddef["lat"], lon=ddef["lon"]))
-            first = districts[rdef["districts"][0]["code"]]
-            db.add(Facility(district_id=first.id, name=rdef["perinatal"]["name"], kind="perinatal_markaz",
-                            lat=rdef["perinatal"]["lat"], lon=rdef["perinatal"]["lon"]))
-            users = _users(db, region, rdef, districts, pw)
-            for ddef in rdef["districts"]:
-                all_d.append((rdef, ddef, districts[ddef["code"]], users))
+                db.flush()
+                for pdef in POLYCLINICS:
+                    if pdef["region"] == rdef["code"] and pdef["district"] == ddef["code"]:
+                        tenants[pdef["code"]] = Tenant(db, rng, pdef, rdef, ddef, d, pw)
+                if rdef["code"] == "QQR" and ddef["code"] == "NUK":
+                    db.add(User(username="district.admin", full_name=f"{d.name} tibbiyot birlashmasi",
+                                role="district_admin", district_id=d.id, region_id=region.id, password_hash=pw))
             if rdef["code"] == "QQR":
-                demo_ctx = (districts, users)
+                db.add(User(username="region.admin", full_name=f"{rdef['name']} sog'liqni saqlash vazirligi",
+                            role="region_admin", region_id=region.id, password_hash=pw))
+        db.flush()
 
-        weights = np.array([4.0 if dd["code"] == "NUK" else (2.0 if dd["code"] == "CHL" else 1.0) for _, dd, _, _ in all_d])
+        codes = [p["code"] for p in POLYCLINICS]
+        weights = np.array([0.45 if c == "PL-NUK-001" else 0.275 for c in codes])
         weights /= weights.sum()
-        counters: dict[str, int] = {}
         created = 0
         while created < n:
-            rdef, ddef, district, users = all_d[int(rng.choice(len(all_d), p=weights))]
-            seq = counters[ddef["code"]] = counters.get(ddef["code"], 400) + 1
+            t = tenants[codes[int(rng.choice(len(codes), p=weights))]]
             delivered = rng.random() < 0.06
             cur_w = float(rng.uniform(38, 41)) if delivered else float(rng.uniform(7, 40.5))
             lmp = today - timedelta(days=int(cur_w * 7))
-            p, preg, lat = make_pregnancy(rng, rdef, ddef, seq, lmp)
+            p, preg, lat = make_pregnancy(rng, t.rdef, t.ddef, t.next_code(), lmp)
             last_visit_w = max((preg["booking_date"] - lmp).days / 7, cur_w - float(rng.uniform(0, 3.5)))
             if (preg["booking_date"] - lmp).days / 7 > cur_w:
                 continue  # not booked yet
@@ -244,8 +271,8 @@ def seed(n: int = 300, seed_value: int = 7) -> dict:
                 lat.pe_onset, lat.pe_rate = cur_w - float(rng.uniform(3, 8)), float(rng.uniform(3.5, 6.5))
             elif cur_w > 18 and rng.random() < 0.07:
                 lat.anemia_onset, lat.anemia_rate = cur_w - float(rng.uniform(6, 14)), float(rng.uniform(2.0, 3.5))
-            nurse = users[f"nurse.{ddef['code']}"]
-            pat = _add_patient(db, p, district, nurse)
+            nurse = t.users["nurse"]
+            pat = t.add_patient(db, p)
             pr = _add_pregnancy(db, pat, preg, status="delivered" if delivered else "active")
             _score_history(db, rng, pr, make_visits(rng, preg, lat, upto_w=min(last_visit_w, lat.delivery_week + 1)),
                            nurse, today)
@@ -258,14 +285,16 @@ def seed(n: int = 300, seed_value: int = 7) -> dict:
                 _add_newborn(db, pr, today - timedelta(days=int(rng.integers(1, 20))), ga, bw,
                              int(rng.integers(6, 10)), ck if rng.random() < 0.85 else None)
 
-        districts, users = demo_ctx
-        _demo_patients(db, rng, districts, users, today)
+        _demo_patients(db, rng, tenants["PL-NUK-001"], today)
         db.commit()
         stats = {
+            "polyclinics": db.query(Polyclinic).count(), "mahallas": db.query(Mahalla).count(),
             "patients": db.query(Patient).count(), "pregnancies": db.query(Pregnancy).count(),
             "visits": db.query(Visit).count(), "assessments": db.query(RiskAssessment).count(),
             "alerts": db.query(Alert).count(), "newborns": db.query(Newborn).count(), "users": db.query(User).count(),
             "audit": db.query(AuditLog).count(),
+            "patients_per_polyclinic": {t.pdef["code"]: db.query(Patient).filter_by(polyclinic_id=t.polyclinic.id).count()
+                                        for t in tenants.values()},
         }
         zones = {z: db.query(Pregnancy).filter_by(status="active", current_zone=z).count() for z in ("red", "yellow", "green")}
     stats["active_zones"] = zones

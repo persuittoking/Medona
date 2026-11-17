@@ -23,16 +23,17 @@ def alert_out(a: Alert, db: Session) -> dict:
         "pregnancy_id": preg.id if preg else None, "patient_id": pat.id if pat else None,
         "patient_code": pat.code if pat else None,
         "gestational_weeks": gest_weeks(preg.lmp_date, visit_date) if preg else None,
-        "district_name": pat.district.name if pat else None,
+        "mahalla_name": pat.mahalla.name if pat else None,
         "reasons": [h["uz_text"] for h in (ra.rule_hits + ra.trend_hits)][:4] if ra else [],
     }
 
 
 def _next_assignee(db: Session, alert: Alert, level: int) -> User | None:
-    district = alert.pregnancy.patient.district
-    if level == 1:
-        return db.scalars(select(User).where(User.role == "doctor", User.district_id == district.id)).first()
-    return db.scalars(select(User).where(User.role == "admin", User.region_id == district.region_id)).first()
+    poly = alert.pregnancy.patient.polyclinic
+    if level == 1:  # polyclinic doctor (head of the polyclinic team)
+        return db.scalars(select(User).where(User.role == "doctor", User.polyclinic_id == poly.id)).first()
+    # district admin: notified only; sees the alert as an aggregate count, never the patient
+    return db.scalars(select(User).where(User.role == "district_admin", User.district_id == poly.district_id)).first()
 
 
 def run_escalations(db: Session) -> int:

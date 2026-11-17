@@ -3,6 +3,16 @@
 Coordinates are approximate district centres (good enough for a map), not survey data.
 """
 
+# The 3 demo polyclinics (tenants). Each serves one mahalla in the demo; boundary files in backend/seed/mahallas/.
+POLYCLINICS: list[dict] = [
+    {"code": "PL-NUK-001", "region": "QQR", "district": "NUK", "mahalla_key": "nukus",
+     "name": "Nukus shahar 1-son oilaviy poliklinikasi", "address": "Nukus sh., Navbahor MFY"},
+    {"code": "PL-CHL-001", "region": "TSH", "district": "CHL", "mahalla_key": "chilonzor",
+     "name": "Chilonzor tumani 1-son oilaviy poliklinikasi", "address": "Toshkent sh., Chilonzor t., Qatortol MFY"},
+    {"code": "PL-FRG-001", "region": "FAR", "district": "FRG", "mahalla_key": "fargona",
+     "name": "Farg'ona shahar 1-son oilaviy poliklinikasi", "address": "Farg'ona sh., Maʻrifat mahallasi"},
+]
+
 REGIONS: list[dict] = [
     {
         "code": "QQR",
@@ -11,7 +21,7 @@ REGIONS: list[dict] = [
         "perinatal": {"name": "Respublika perinatal markazi (Nukus)", "lat": 42.4619, "lon": 59.6166},
         "hb_shift": -8.0,  # synthetic: lower mean hemoglobin in this region
         "districts": [
-            {"code": "NUK", "name": "Nukus tumani", "lat": 42.63, "lon": 59.63},
+            {"code": "NUK", "name": "Nukus shahri", "lat": 42.4605, "lon": 59.6105},
             {"code": "XOJ", "name": "Xo'jayli tumani", "lat": 42.40, "lon": 59.46},
             {"code": "CHI", "name": "Chimboy tumani", "lat": 42.94, "lon": 59.78},
             {"code": "BER", "name": "Beruniy tumani", "lat": 41.69, "lon": 60.75},
@@ -38,7 +48,7 @@ REGIONS: list[dict] = [
         "perinatal": {"name": "Farg'ona viloyat perinatal markazi", "lat": 40.384, "lon": 71.786},
         "hb_shift": -3.0,
         "districts": [
-            {"code": "FRG", "name": "Farg'ona tumani", "lat": 40.33, "lon": 71.72},
+            {"code": "FRG", "name": "Farg'ona shahri", "lat": 40.386, "lon": 71.786},
             {"code": "QOQ", "name": "Qo'qon shahri", "lat": 40.528, "lon": 70.943},
             {"code": "QUV", "name": "Quva tumani", "lat": 40.522, "lon": 72.070},
             {"code": "RIS", "name": "Rishton tumani", "lat": 40.357, "lon": 71.284},
