@@ -492,3 +492,5 @@ Pick in this order, one at a time, and stop if anything is unstable:
 - **Bug:** "Acceptance item `<…>` fails. Error: `<paste>`. Find the root cause, fix it, add a regression test, and re-run all tests."
 - **UI polish:** "Review every page as a strict UX designer: spacing, alignment, Uzbek wording, empty states, mobile at 390px. List the problems, then fix them."
 - **Before the pitch:** "Run the whole DEMO_SCRIPT.md end to end yourself (API calls + Playwright for the UI if available) and report anything that could fail live."
+## Prototype mode (current)
+Use SQLite (DATABASE_URL=sqlite:///./onaradar.db) and run without Docker until told otherwise.
