@@ -31,3 +31,6 @@ Thumbs.db
 .vscode/
 .idea/
 *.tsbuildinfo
+
+# built frontend copied into the backend (Docker / local single-service check)
+backend/static/

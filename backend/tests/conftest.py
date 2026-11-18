@@ -7,6 +7,7 @@ sys.path.insert(0, str(BACKEND))
 
 # Tests use their own SQLite file and never need real secrets.
 os.environ["DATABASE_URL"] = "sqlite:///./test_onaradar.db"
+os.environ["LOGIN_RATE_LIMIT"] = "0"  # the suite logs in far more than 20x; tests/test_task15_hosting.py enables it
 os.environ["GEMINI_API_KEY"] = ""  # env beats backend/.env: tests never call the real API
 os.environ.setdefault("FERNET_KEY", "x" * 43 + "=")  # replaced below with a valid key
 

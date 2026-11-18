@@ -32,6 +32,13 @@ class Settings(BaseSettings):
     light_visit_max_weeks: float = 36.0  # from this week all remaining scheduled visits stay "To'liq"
     minutes_saved_per_light_visit: int = 10  # estimated doctor minutes saved per confirmed light visit (demo)
     propose_fewer_visits: bool = False  # OFF by default; docs-only "Vazirlikka taklif", 12 visits are never reduced
+    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"  # comma-separated
+    login_rate_limit: int = 20  # POST /api/auth/login attempts per client IP per window (0 = off)
+    login_rate_window_s: int = 600
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     @field_validator("*", mode="before")
     @classmethod

@@ -3,13 +3,16 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import audit, current_user
+from app.config import get_settings
 from app.db import get_db
 from app.models import ADMIN_ROLES, District, Mahalla, Polyclinic, Region, User
 from app.schemas import LoginIn, TokenOut, UserOut
 from app.security.auth import create_token, verify_password
+from app.security.rate_limit import login_limiter
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 BAD_LOGIN = "Poliklinika ID, login yoki parol noto'g'ri"
+TOO_MANY_LOGINS = "Kirishga urinishlar soni oshib ketdi. Iltimos, {minutes} daqiqadan so'ng qayta urinib ko'ring"
 
 
 def user_out(db: Session, u: User) -> UserOut:
@@ -29,6 +32,10 @@ def user_out(db: Session, u: User) -> UserOut:
 
 @router.post("/login", response_model=TokenOut)
 def login(body: LoginIn, request: Request, db: Session = Depends(get_db)) -> TokenOut:
+    s = get_settings()
+    ip = request.client.host if request.client else "unknown"  # real client IP behind the proxy (--proxy-headers)
+    if not login_limiter.allow(ip, s.login_rate_limit, s.login_rate_window_s):
+        raise HTTPException(429, TOO_MANY_LOGINS.format(minutes=max(1, s.login_rate_window_s // 60)))
     username = body.username.strip().lower()
     code = (body.polyclinic_code or "").strip().upper()
     if code:
