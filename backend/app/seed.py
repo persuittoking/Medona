@@ -268,12 +268,13 @@ def _demo_patients(db, rng, t: Tenant, today: date) -> None:
         v(lmp, 25.0, 116, 76, 119, 72.0, glu=5.6),
     ], nurse, today)
 
-    # DEMO3 — healthy pregnancy -> GREEN (the system does not over-alarm).
+    # DEMO3 — healthy pregnancy -> GREEN (the system does not over-alarm; 4 green visits -> eligible for "Yengil").
     _, p3, lmp = base("QQR-NUK-DEMO3", "Madina Yusupova", 26, 24.0, gravidity=2, parity=1,
                       interpregnancy_months=38, booking_weight_kg=57.0)
     _score_history(db, rng, p3, [
         v(lmp, 9.0, 110, 70, 128, 57.0),
-        v(lmp, 16.5, 112, 70, 126, 59.0),
+        v(lmp, 13.5, 111, 70, 127, 58.0),
+        v(lmp, 18.0, 112, 70, 126, 59.5),
         v(lmp, 22.5, 110, 72, 124, 61.6),
     ], nurse, today)
 
@@ -616,6 +617,20 @@ def seed(seed_value: int = 7, active_per_mahalla: tuple[int, int] = ACTIVE_PER_M
             t.use_mahalla(0)
 
         _demo_patients(db, rng, tenants["PL-NUK-001"], today)
+        from app.services.visit_intensity import confirm_light_visit_plan, pregnancy_visit_plan
+
+        for t in tenants.values():
+            confirmed_n = 0
+            active_green = db.query(Pregnancy).join(Patient).filter(
+                Patient.polyclinic_id == t.polyclinic.id,
+                Pregnancy.status == "active",
+                Pregnancy.current_zone == "green",
+            ).all()
+            for pr in active_green:
+                pl = pregnancy_visit_plan(db, pr, log_recommendation=True)
+                if pl["eligible"] and not pr.patient.code.endswith("DEMO3") and confirmed_n < 2:
+                    confirm_light_visit_plan(db, pr, t.users["doctor"])
+                    confirmed_n += 1
         db.commit()
         stats = {
             "polyclinics": db.query(Polyclinic).count(), "mahallas": db.query(Mahalla).count(),

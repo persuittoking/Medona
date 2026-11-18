@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     sla_red_minutes: int = 120
     demo_sla_red_minutes: int = 10  # red SLA in DEMO_MODE; long enough not to escalate mid-pitch
     sla_yellow_hours: int = 72
+    light_visit_max_weeks: float = 36.0  # from this week all remaining scheduled visits stay "To'liq"
+    minutes_saved_per_light_visit: int = 10  # estimated doctor minutes saved per confirmed light visit (demo)
+    propose_fewer_visits: bool = False  # OFF by default; docs-only "Vazirlikka taklif", 12 visits are never reduced
 
     @field_validator("*", mode="before")
     @classmethod

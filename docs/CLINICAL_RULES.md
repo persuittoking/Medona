@@ -158,3 +158,29 @@ the combined system (rules + trends OR ML ≥ yellow) flags ≥85% of pregnancie
 as YELLOW/RED at least once from 28 weeks (pregnancy-level sensitivity). Per-visit sensitivity is
 reported next to it. See
 `backend/ml/MODEL_CARD.md` and `backend/ml/artifacts/metrics.json`.
+
+## F. Adaptive visit intensity (advisory only; mandatory 12 visits are NEVER reduced)
+All thresholds live in `backend/app/risk/thresholds.py` (`STANDARD_VISITS = 12`, `CONSECUTIVE_GREEN_REQUIRED = 3`,
+`LIGHT_VISIT_MAX_WEEKS = 36`, `MINUTES_SAVED_PER_LIGHT_VISIT = 10`).
+
+- **National 12-visit standard is strictly respected**: Every pregnancy schedule always contains all **12 mandatory
+  antenatal visits** (`STANDARD_VISIT_WEEKS = (8, 12, 16, 20, 24, 28, 30, 32, 34, 36, 38, 40)`). The system **never**
+  recommends fewer than 12 visits.
+- **Visit intensity**: Each scheduled visit has an intensity of either `"To'liq"` (full doctor visit) or `"Yengil"`
+  (light visit: nurse-led standard checks only).
+- **Eligibility for `"Yengil"`**:
+  1. At least `CONSECUTIVE_GREEN_REQUIRED = 3` consecutive green assessments,
+  2. No Tier B risk factor (`Y01, Y08, Y11, Y12, Y13, Y15`) or Tier A / red rule hit,
+  3. No trend hit (`T01–T05`, `P01–P05`),
+  4. No open or escalated alert,
+  5. Current gestational age `< LIGHT_VISIT_MAX_WEEKS` (36 weeks); from 36 weeks onwards all visits stay `"To'liq"`.
+- **Immediate safety reset**: Any yellow or red result, or any new risk factor, returns **all** remaining visits to
+  `"To'liq"` immediately (`reset_visit_intensity` in `AuditLog`).
+- **Doctor-only confirmation & Clinical/Ministry approval**: The recommendation (`"Tavsiya: yengil ko'rik (oxirgi N ta natija yashil)"`)
+  is advisory only and is **never applied automatically**. Only the `doctor` role can confirm it (`confirm_light_visit`),
+  and every recommendation and confirmation is audit-logged. Any real-world change to visit intensity requires clinical
+  validation and formal approval by the Ministry of Health (SSV).
+- **Vazirlikka taklif (`PROPOSE_FEWER_VISITS=false`, OFF by default, docs-only)**: As a policy proposal for future
+  consideration by the Ministry of Health, a pilot study could evaluate whether a reduced visit count is safe for
+  persistently low-risk pregnancies if formally approved by the Ministry. There is no UI button for reducing visit
+  counts, and OnaRadar always enforces the full 12-visit schedule.

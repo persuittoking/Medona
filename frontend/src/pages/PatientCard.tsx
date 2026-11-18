@@ -1,9 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "../api/client";
-import type { PatientDetail, Visit, Zone } from "../api/types";
+import type { PatientDetail, Visit, VisitPlan, Zone } from "../api/types";
 import { AiSummaryPanel } from "../components/AiSummaryPanel";
 import { MahallaMap } from "../components/MahallaMap";
 import { usePolyclinicMap } from "./PolyclinicMap";
@@ -12,6 +12,7 @@ import { Empty, ErrorBox, Skeleton, ZoneBadge } from "../components/ui";
 import { ALERT_STATUS_LABEL, DISCLAIMER, PROTEINURIA_LABEL, SEX_LABEL, SYMPTOM_LABEL, ZONE_COLOR } from "../i18n/uz";
 import { useAuth } from "../lib/auth";
 import { fmtAge, fmtDate, fmtDateTime, fmtPct, fmtWeeks } from "../lib/format";
+import { useToast } from "../lib/toast";
 
 function Gauge({ p, zone }: { p: number | null; zone: Zone }) {
   const v = p ?? 0;
@@ -78,17 +79,39 @@ function VisitRow({ v }: { v: Visit }) {
 export default function PatientCard() {
   const { id } = useParams();
   const { user } = useAuth();
+  const qc = useQueryClient();
+  const toast = useToast();
   const q = useQuery({ queryKey: ["patient", id], queryFn: () => api<PatientDetail>(`/api/patients/${id}`) });
   const map = usePolyclinicMap();
   const [pii, setPii] = useState<{ full_name: string; pinfl: string; phone: string } | null>(null);
+  const [confirming, setConfirming] = useState(false);
 
   if (q.error) return <ErrorBox error={q.error} />;
   if (!q.data) return <div className="space-y-6"><Skeleton className="h-28" /><Skeleton className="h-64" /></div>;
   const d = q.data;
   const p = d.pregnancy;
+  const vp = d.visit_plan;
   const ra = d.latest_assessment;
   const chart = d.visits.map((v) => ({ w: v.gestational_weeks, hb: v.hemoglobin_g_l, sys: v.systolic, dia: v.diastolic, wt: v.weight_kg }));
   const canEnter = (user?.role === "nurse" || user?.role === "doctor") && p.status === "active";
+
+  async function confirmLightVisit() {
+    setConfirming(true);
+    try {
+      const updated = await api<VisitPlan>(`/api/patients/${d.patient_id}/visit-intensity/confirm`, { method: "POST" });
+      toast({
+        kind: "success",
+        title: "Yengil ko'rik rejimi tasdiqlandi",
+        body: `${updated.confirmed_light_visits} ta rejadagi ko'rik Yengil (hamshira ishtirokida) sifatida belgilandi.`,
+      });
+      qc.invalidateQueries({ queryKey: ["patient", id] });
+      qc.invalidateQueries({ queryKey: ["summary"] });
+    } catch (e) {
+      toast({ kind: "error", title: "Tasdiqlab bo'lmadi", body: e instanceof Error ? e.message : undefined });
+    } finally {
+      setConfirming(false);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -137,6 +160,80 @@ export default function PatientCard() {
         </div>
         <AiSummaryPanel pregnancyId={p.id} />
       </div>
+
+      {vp && (
+        <div className="card space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className="font-semibold">Tashriflar intensivligi rejasi ({vp.standard_visits} ta majburiy ko'rik)</h3>
+              <p className="text-xs text-slate-500">
+                Milliy standart bo'yicha {vp.standard_visits} ta majburiy antenatal ko'rik soni hech qachon qisqartirilmaydi.
+              </p>
+            </div>
+            <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700">
+              Jami: {vp.total_scheduled_visits} ta ko'rik
+            </span>
+          </div>
+
+          {vp.eligible && vp.recommendation_uz ? (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-3 text-sm text-emerald-950">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="font-semibold text-emerald-900">{vp.recommendation_uz}</div>
+                  <p className="mt-0.5 text-xs text-emerald-800">{vp.reason_uz}</p>
+                </div>
+                {vp.confirmed ? (
+                  <span className="rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white">
+                    ✓ Shifokor tasdiqlagan ({vp.confirmed_light_visits} ta Yengil)
+                  </span>
+                ) : user?.role === "doctor" && p.status === "active" ? (
+                  <button
+                    type="button"
+                    className="btn-primary btn-sm"
+                    disabled={confirming}
+                    onClick={confirmLightVisit}
+                  >
+                    {confirming ? "Tasdiqlanmoqda…" : "Shifokor sifatida tasdiqlash (Yengil ko'rik)"}
+                  </button>
+                ) : (
+                  <span className="rounded bg-white px-2.5 py-1 text-xs font-medium text-emerald-900 ring-1 ring-emerald-300">
+                    Faqat oilaviy shifokor tasdiqlashi mumkin
+                  </span>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-lg bg-slate-50 p-3 text-xs text-slate-700 ring-1 ring-slate-200">
+              <b>Barcha qolgan ko'riklar: To'liq (shifokor ko'rigi).</b> {vp.reason_uz}
+            </div>
+          )}
+
+          <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6 lg:grid-cols-12">
+            {vp.schedule.map((sl) => {
+              const isLight = sl.intensity === "Yengil";
+              const isRecLight = !vp.confirmed && sl.recommended_intensity === "Yengil";
+              return (
+                <div
+                  key={sl.visit_number}
+                  className={`rounded-lg border p-2 text-center text-xs ${
+                    sl.status === "completed"
+                      ? "border-slate-200 bg-slate-50 text-slate-500"
+                      : isLight
+                      ? "border-emerald-300 bg-emerald-50 text-emerald-900"
+                      : isRecLight
+                      ? "border-dashed border-emerald-300 bg-white text-emerald-800"
+                      : "border-slate-200 bg-white text-slate-800"
+                  }`}
+                >
+                  <div className="font-mono text-[11px] text-slate-400">#{sl.visit_number} · {sl.target_week}h</div>
+                  <div className="mt-0.5 font-semibold">{sl.intensity}</div>
+                  {isRecLight && <div className="text-[10px] text-emerald-700">(tavsiya: Yengil)</div>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {d.visits.length > 0 && (
         <div className="grid gap-6 lg:grid-cols-3">

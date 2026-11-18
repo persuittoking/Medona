@@ -54,6 +54,13 @@ FAR_FROM_PERINATAL_KM = 50
 TIER_B_RULES = ("Y01", "Y08", "Y11", "Y12", "Y13", "Y15")  # age, BMI, interpregnancy, Rh-, late/overdue, distance
 TIER_B_MIN_FOR_YELLOW = 2
 
+# --- Adaptive visit intensity (advisory only; mandatory 12 visits are NEVER reduced) ---
+STANDARD_VISITS = 12
+STANDARD_VISIT_WEEKS = (8, 12, 16, 20, 24, 28, 30, 32, 34, 36, 38, 40)  # 12 mandatory antenatal visits
+CONSECUTIVE_GREEN_REQUIRED = 3
+LIGHT_VISIT_MAX_WEEKS = 36      # from 36 weeks onwards all visits stay "To'liq" (full doctor visit)
+MINUTES_SAVED_PER_LIGHT_VISIT = 10
+
 # --- Trend rules (vs previous visit) ---
 TREND_HB_DROP = 15
 TREND_SYS_RISE = 20

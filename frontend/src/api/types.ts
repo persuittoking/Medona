@@ -159,6 +159,42 @@ export interface Newborn {
   hits: Hit[];
 }
 
+export interface ScheduledVisit {
+  visit_number: number;
+  target_week: number;
+  status: "completed" | "upcoming";
+  recommended_intensity: "To'liq" | "Yengil";
+  intensity: "To'liq" | "Yengil";
+  intensity_code: "full" | "light";
+}
+
+export interface VisitPlan {
+  standard_visits: number;
+  total_scheduled_visits: number;
+  eligible: boolean;
+  confirmed: boolean;
+  confirmed_by: string | null;
+  confirmed_at: string | null;
+  consecutive_green: number;
+  consecutive_green_required: number;
+  light_visit_max_weeks: number;
+  recommendation_uz: string | null;
+  reason_uz: string;
+  recommended_light_visits: number;
+  confirmed_light_visits: number;
+  schedule: ScheduledVisit[];
+}
+
+export interface VisitIntensityImpact {
+  standard_visits: number;
+  eligible_pregnancies: number;
+  confirmed_pregnancies: number;
+  confirmed_light_visits: number;
+  minutes_per_light_visit: number;
+  saved_doctor_minutes: number;
+  label_uz: string;
+}
+
 export interface PatientDetail {
   patient_id: number;
   code: string;
@@ -190,6 +226,7 @@ export interface PatientDetail {
     height_cm: number;
     booking_weight_kg: number;
   };
+  visit_plan?: VisitPlan | null;
   latest_assessment: Risk | null;
   visits: Visit[];
   assessments: Risk[];
@@ -218,6 +255,10 @@ export interface Summary {
   open_red_alerts: number;
   sla_breaches: number;
   median_ack_minutes: number | null;
+  confirmed_light_visits?: number;
+  minutes_per_light_visit?: number;
+  saved_doctor_minutes?: number;
+  visit_intensity_impact?: VisitIntensityImpact;
 }
 
 

@@ -75,15 +75,41 @@ export default function Dashboard() {
       )}
 
       {summary.error ? <ErrorBox error={summary.error} /> : !s ? <Skeleton className="h-24" /> : (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 xl:grid-cols-7">
-          <Kpi label={ACTIVE_LABEL[subject]} value={s.active} />
-          <Kpi label="Qizil zona" value={s.red} tone="text-zred" />
-          <Kpi label="Sariq zona" value={s.yellow} tone="text-amber-600" />
-          <Kpi label="Yashil zona" value={s.green} tone="text-zgreen" />
-          <Kpi label="Ochiq ogohlantirishlar" value={s.open_alerts} />
-          <Kpi label="SLA buzilgan" value={s.sla_breaches} />
-          <Kpi label="Javob vaqti (mediana)" value={fmtMinutes(s.median_ack_minutes)} />
-        </div>
+        <>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 xl:grid-cols-7">
+            <Kpi label={ACTIVE_LABEL[subject]} value={s.active} />
+            <Kpi label="Qizil zona" value={s.red} tone="text-zred" />
+            <Kpi label="Sariq zona" value={s.yellow} tone="text-amber-600" />
+            <Kpi label="Yashil zona" value={s.green} tone="text-zgreen" />
+            <Kpi label="Ochiq ogohlantirishlar" value={s.open_alerts} />
+            <Kpi label="SLA buzilgan" value={s.sla_breaches} />
+            <Kpi label="Javob vaqti (mediana)" value={fmtMinutes(s.median_ack_minutes)} />
+          </div>
+
+          {s.visit_intensity_impact && (
+            <div className="card flex flex-wrap items-center justify-between gap-4 border-l-4 border-l-brand-700 py-3.5">
+              <div className="space-y-0.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-semibold text-slate-900">Tejalgan shifokor vaqti</span>
+                  <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800">
+                    {s.visit_intensity_impact.label_uz}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Shifokor tasdiqlagan yengil ko'riklar: <b>{s.visit_intensity_impact.confirmed_light_visits} ta</b> × {s.visit_intensity_impact.minutes_per_light_visit} daq
+                  {" · "}Tavsiyaga mos homiladorlar: <b>{s.visit_intensity_impact.eligible_pregnancies} nafar</b>
+                  {" · "}Majburiy {s.visit_intensity_impact.standard_visits} ta ko'rik soni qisqartirilmaydi.
+                </p>
+              </div>
+              <div className="text-right">
+                <div className="text-2xl font-bold tabular-nums text-brand-800">
+                  {s.visit_intensity_impact.saved_doctor_minutes} daq
+                </div>
+                <div className="text-[11px] text-slate-500">{s.visit_intensity_impact.label_uz}</div>
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_400px]">

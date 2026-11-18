@@ -106,6 +106,8 @@ const ACTION_LABEL: Record<string, string> = {
   login: "Tizimga kirish", view_patient: "Bemor kartasini ko'rish", view_child: "Bola kartasini ko'rish", reveal_pii: "Shaxsiy ma'lumotni ochish",
   create_visit: "Tashrif kiritish", create_child_check: "Bola ko'rigini kiritish", external_lookup: "Tashqi JShShIR qidiruv",
   external_lookup_miss: "Tashqi JShShIR qidiruv (topilmadi)", external_entry: "Boshqa poliklinikadan natija kiritish",
+  recommend_light_visit: "Tavsiya: yengil ko'rik", confirm_light_visit: "Shifokor tasdiqladi: yengil ko'rik",
+  reset_visit_intensity: "Ko'rik rejimi To'liq ga qaytarildi",
   view_home_points: "Uy manzillari xaritasini ko'rish", create_alert: "Ogohlantirish yaratildi", ack_alert: "Ogohlantirishni qabul qilish", resolve_alert: "Ogohlantirishni yopish",
   reassign_alert: "Mutaxassisga qayta biriktirish", escalate_alert_l1: "Eskalatsiya (1-daraja)", escalate_alert_l2: "Eskalatsiya (2-daraja)",
   demo_expire_sla: "Demo: SLA muddatini tugatish", telegram_new_alert: "Telegram: yangi ogohlantirish", telegram_escalated: "Telegram: eskalatsiya",

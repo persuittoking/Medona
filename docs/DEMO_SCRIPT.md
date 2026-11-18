@@ -71,6 +71,17 @@ mahallas (`Registon MFY`, `Siyob MFY`, `Bog'ishamol MFY`) with their aggregate z
    with the badge **"📥 Tashqi natija kelib tushdi (Boshqa poliklinikada o'tkazilgan: Nukus shahar 1-son oilaviy poliklinikasi)"**,
    and the visit on the patient card carries the badge **"Boshqa poliklinikada o'tkazilgan: Nukus shahar 1-son oilaviy poliklinikasi"**.
 
+## 8. Adaptive visit intensity — 12 mandatory visits, doctor confirmation & saved time (≈45 s)
+1. Log in **PL-NUK-001 / doctor** → **Bosh sahifa**: the impact card **"Tejalgan shifokor vaqti"** (`taxminiy, demo ma'lumot`)
+   shows the estimated doctor minutes saved (`confirmed_light_visits × 10 daq`), while stating that the mandatory **12 antenatal
+   visits are never reduced**.
+2. Open `QQR-NUK-DEMO3` (healthy pregnancy, 24 weeks, 4 consecutive green checkups): the **Tashriflar intensivligi rejasi (12 ta
+   majburiy ko'rik)** card shows **"Tavsiya: yengil ko'rik (oxirgi 4 ta natija yashil)"** with the reason (no Tier B factors, no
+   trend hits, no open alerts, `< 36` weeks; visits from 36 weeks onwards stay `"To'liq"`).
+3. Click **"Shifokor sifatida tasdiqlash (Yengil ko'rik)"** (only the `doctor` role can confirm; never automatic, audit-logged as
+   `confirm_light_visit`). Remaining visits before 36 weeks switch to `"Yengil"`, and **"Tejalgan shifokor vaqti"** on the
+   dashboard increases accordingly. Any yellow or red visit immediately resets all remaining visits back to `"To'liq"`.
+
 ## Reset
 Stop the backend, run `reset_demo.bat` (re-seeds the database; DEMO1 is YELLOW again, DEMO5's child GREEN again).
 An older demo DB also keeps working without a reset: on startup the backend adds new columns (never drops

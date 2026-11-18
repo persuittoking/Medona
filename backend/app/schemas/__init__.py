@@ -350,6 +350,32 @@ class PregnancyOut(BaseModel):
     booking_weight_kg: float
 
 
+class ScheduledVisitOut(BaseModel):
+    visit_number: int
+    target_week: int
+    status: Literal["completed", "upcoming"]
+    recommended_intensity: Literal["To'liq", "Yengil"]
+    intensity: Literal["To'liq", "Yengil"]
+    intensity_code: Literal["full", "light"]
+
+
+class VisitPlanOut(BaseModel):
+    standard_visits: int = 12
+    total_scheduled_visits: int = 12
+    eligible: bool
+    confirmed: bool
+    confirmed_by: str | None = None
+    confirmed_at: datetime | None = None
+    consecutive_green: int
+    consecutive_green_required: int
+    light_visit_max_weeks: float
+    recommendation_uz: str | None = None
+    reason_uz: str
+    recommended_light_visits: int
+    confirmed_light_visits: int
+    schedule: list[ScheduledVisitOut]
+
+
 class PatientDetail(BaseModel):
     patient_id: int
     code: str
@@ -366,6 +392,7 @@ class PatientDetail(BaseModel):
     distance_to_perinatal_km: float
     nurse: str | None
     pregnancy: PregnancyOut
+    visit_plan: VisitPlanOut | None = None
     latest_assessment: RiskOut | None
     visits: list[VisitOut]
     assessments: list[RiskOut]

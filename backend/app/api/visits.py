@@ -16,6 +16,7 @@ from app.schemas import (
     RiskOut,
     VisitCreatedOut,
     VisitIn,
+    VisitPlanOut,
 )
 from app.services.ai_summary import generate_cached
 from app.services.alerts import alert_out
@@ -35,6 +36,7 @@ from app.services.scoring import (
     score_new_visit,
     store_assessment,
 )
+from app.services.visit_intensity import confirm_light_visit_plan, sync_after_visit
 
 router = APIRouter(prefix="/api", tags=["visits"])
 
@@ -71,6 +73,7 @@ def create_visit(body: VisitIn, request: Request, background: BackgroundTasks,
     ra = store_assessment(db, preg, visit, result)
     alert = create_alert_if_worse(db, preg, old_zone, ra)
     apply_assessment(preg, ra)
+    sync_after_visit(db, preg, ra, actor_id=user.id)
     audit(db, user, "create_visit", "visit", visit.id, request)
     if alert is not None:
         audit(db, None, "create_alert", "alert", alert.id, request)
@@ -81,6 +84,17 @@ def create_visit(body: VisitIn, request: Request, background: BackgroundTasks,
         background.add_task(notify_new_alert_job, alert.id)
     return {"visit": visit, "assessment": risk_out(ra), "previous_zone": old_zone,
             "alert": alert_out(alert, db) if alert else None}
+
+
+@router.post("/pregnancies/{pregnancy_id}/visit-intensity/confirm", response_model=VisitPlanOut)
+def confirm_pregnancy_visit_intensity(pregnancy_id: int, request: Request,
+                                      t: Tenant = Depends(staff("doctor"))) -> dict:
+    """Doctor-only confirmation of 'Yengil' visit intensity by pregnancy_id."""
+    preg = t.get_pregnancy(pregnancy_id)
+    ip = request.client.host if request.client else None
+    plan = confirm_light_visit_plan(t.db, preg, t.user, ip=ip)
+    t.db.commit()
+    return plan
 
 
 @router.post("/external/lookup", response_model=ExternalLookupOut)
@@ -125,6 +139,7 @@ def create_external_visit(body: ExternalVisitIn, request: Request, background: B
     ra = store_assessment(db, preg, visit, result)
     alert = create_alert_if_worse(db, preg, old_zone, ra)
     apply_assessment(preg, ra)
+    sync_after_visit(db, preg, ra, actor_id=user.id)
     ip = request.client.host if request.client else None
     db.add(AuditLog(
         user_id=user.id, action="external_entry", entity="visit", entity_id=visit.id,

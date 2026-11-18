@@ -13,7 +13,8 @@ All endpoints except `/api/health` and `/api/auth/login` need `Authorization: Be
 | POST | `/api/auth/login` | — | `{polyclinic_code, username, password}` → `{access_token, user}`; admins send no `polyclinic_code` |
 | GET | `/api/auth/me` | all | current user |
 | GET | `/api/patients` | staff | own polyclinic. Filters: `zone`, `mahalla_id`, `trimester`, `overdue`, `q`. |
-| GET | `/api/patients/{patient_id}` | staff | card: masked PII, home point, pregnancy, visits, assessments, alerts, newborns. **Writes audit `view_patient`.** |
+| GET | `/api/patients/{patient_id}` | staff | card: masked PII, home point, pregnancy, `visit_plan` (12 mandatory visits with `"To'liq"`/`"Yengil"` intensity), visits, assessments, alerts, newborns. **Writes audit `view_patient` (and `recommend_light_visit` when eligible).** |
+| POST | `/api/patients/{patient_id}/visit-intensity/confirm` | doctor | confirm `"Yengil"` visit intensity for an eligible pregnancy (never reduces 12 visits; audit `confirm_light_visit`) |
 | POST | `/api/patients/{patient_id}/reveal` | staff | full name / PINFL / phone. **Writes audit `reveal_pii`.** |
 | POST | `/api/risk/preview` | staff | `VisitIn` → `RiskOut`. Scores WITHOUT saving (live form preview). |
 | POST | `/api/visits` | nurse, doctor | `VisitIn` → `{visit, assessment, previous_zone, alert}`; creates an Alert if the zone got worse. |

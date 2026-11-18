@@ -23,3 +23,10 @@
    - Background APScheduler job (`every 30 s`) escalates overdue alerts.
 4. **AI Summary (`backend/app/llm/`)**:
    - De-identified allow-list payload sent to Google Gemini (`google-genai` SDK) with structured output, fallback model, plain-JSON retry, and deterministic Uzbek template fallback (`"Shablon"`).
+5. **Adaptive Visit Intensity (`backend/app/services/visit_intensity.py`)**:
+   - The national standard of **12 mandatory antenatal visits** (`STANDARD_VISITS = 12`) is strictly respected and **never reduced**.
+   - Each scheduled visit is assigned `"To'liq"` (full doctor visit) or `"Yengil"` (nurse-led standard check).
+   - Eligibility requires `>= 3` (`CONSECUTIVE_GREEN_REQUIRED`) consecutive green assessments, no Tier B/A risk factors, no trend hits, no open alerts, and gestational age `< 36` weeks (from 36 weeks all visits stay `"To'liq"`).
+   - Advisory only and never automatic: only the `doctor` role can confirm `"Yengil"` intensity (`POST /api/patients/{id}/visit-intensity/confirm`). Any yellow/red result or new risk factor resets all remaining visits to `"To'liq"` immediately. Every recommendation (`recommend_light_visit`), confirmation (`confirm_light_visit`), and reset (`reset_visit_intensity`) is written to `AuditLog`.
+   - Dashboard shows `"Tejalgan shifokor vaqti"` = confirmed light visits × `MINUTES_SAVED_PER_LIGHT_VISIT` (default 10 min), labelled `"taxminiy, demo ma'lumot"`.
+   - **Clinical & Ministry approval + "Vazirlikka taklif" (`PROPOSE_FEWER_VISITS=false`)**: Real-world intensity adjustments require clinical and Ministry of Health approval. A documented policy note (`"Vazirlikka taklif"`, OFF by default in `.env`, docs-only with no UI button) notes that a reduced schedule could be piloted in the future only if approved by the Ministry.

@@ -10,12 +10,13 @@ from app.models import Alert, Patient, Pregnancy, RiskAssessment, User, Visit
 from app.risk import thresholds as T
 from app.risk.features import bmi, gest_weeks
 from app.risk.infant import age_days
-from app.schemas import PatientDetail, PatientRow, PiiOut
+from app.schemas import PatientDetail, PatientRow, PiiOut, VisitPlanOut
 from app.security.crypto import decrypt, mask_name, mask_phone, mask_pinfl
 from app.services.alerts import alert_out
 from app.services.children import latest_child_assessment
 from app.services.geo import decrypt_home
 from app.services.scoring import preg_dict, risk_out
+from app.services.visit_intensity import confirm_light_visit_plan, pregnancy_visit_plan
 
 router = APIRouter(prefix="/api/patients", tags=["patients"])
 
@@ -100,6 +101,8 @@ def patient_detail(patient_id: int, request: Request, t: Tenant = Depends(staff(
                          "hits": (ra.rule_hits + ra.trend_hits) if ra else []})
     nurse = db.get(User, pat.assigned_nurse_id) if pat.assigned_nurse_id else None
     b = bmi(preg_dict(preg))
+    visit_plan = pregnancy_visit_plan(db, preg, log_recommendation=True, actor_id=user.id)
+    db.commit()
     return {
         "patient_id": pat.id, "code": pat.code, "name_masked": mask_name(decrypt(pat.full_name_enc)),
         "pinfl_masked": mask_pinfl(decrypt(pat.pinfl_enc)), "phone_masked": mask_phone(decrypt(pat.phone_enc)),
@@ -118,6 +121,7 @@ def patient_detail(patient_id: int, request: Request, t: Tenant = Depends(staff(
             "current_zone": preg.current_zone, "current_risk_score": preg.current_risk_score,
             "bmi_booking": None if b != b else b, "height_cm": preg.height_cm, "booking_weight_kg": preg.booking_weight_kg,
         },
+        "visit_plan": visit_plan,
         "latest_assessment": risk_out(assessments[-1] if assessments else None),
         "visits": preg.visits,
         "assessments": [risk_out(a) for a in assessments],
@@ -134,3 +138,18 @@ def reveal_pii(patient_id: int, request: Request, t: Tenant = Depends(staff())) 
     audit(db, user, "reveal_pii", "patient", pat.id, request)
     db.commit()
     return {"full_name": decrypt(pat.full_name_enc), "pinfl": decrypt(pat.pinfl_enc), "phone": decrypt(pat.phone_enc)}
+
+
+@router.post("/{patient_id}/visit-intensity/confirm", response_model=VisitPlanOut)
+def confirm_patient_visit_intensity(patient_id: int, request: Request,
+                                    t: Tenant = Depends(staff("doctor"))) -> dict:
+    """Doctor-only: confirm 'Yengil' visit intensity for an eligible pregnancy (never reduces the 12 visits)."""
+    pat = t.get_patient(patient_id)
+    active = [p for p in pat.pregnancies if p.status == "active"]
+    if not active:
+        raise HTTPException(409, "Faol homiladorlik topilmadi")
+    preg = sorted(active, key=lambda p: -p.id)[0]
+    ip = request.client.host if request.client else None
+    plan = confirm_light_visit_plan(t.db, preg, t.user, ip=ip)
+    t.db.commit()
+    return plan

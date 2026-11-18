@@ -22,10 +22,12 @@ from app.models import (
     User,
     utcnow,
 )
+from app.risk import thresholds as T
 from app.risk.features import gest_weeks
 from app.risk.infant import age_days
 from app.security.crypto import decrypt, mask_name
 from app.services.alerts import ESCALATION_CHAIN, by_subject
+from app.services.visit_intensity import pregnancy_visit_plan
 
 router = APIRouter(prefix="/api", tags=["dashboard"])
 
@@ -69,9 +71,32 @@ def summary(subject: str = SubjectQ, t: Tenant = Depends(staff())) -> dict:
     pregs = [p for p, _ in _pregnancies(t)]
     kids = _children(t)
     chosen = (pregs if subject != "child" else []) + (kids if subject != "pregnancy" else [])
-    return {**zone_kpis(chosen, _alerts(t, subject)), "subject": subject,
-            "active_pregnancies": len(pregs), "active_children": len(kids),
-            "counts": {"pregnancy": len(pregs), "child": len(kids), "all": len(pregs) + len(kids)}, "synthetic": True}
+    plans = [pregnancy_visit_plan(t.db, p) for p in pregs]
+    t.db.commit()
+    s = get_settings()
+    confirmed_light = sum(pl["confirmed_light_visits"] for pl in plans)
+    mins_per = s.minutes_saved_per_light_visit
+    saved_mins = confirmed_light * mins_per
+    return {
+        **zone_kpis(chosen, _alerts(t, subject)),
+        "subject": subject,
+        "active_pregnancies": len(pregs),
+        "active_children": len(kids),
+        "counts": {"pregnancy": len(pregs), "child": len(kids), "all": len(pregs) + len(kids)},
+        "confirmed_light_visits": confirmed_light,
+        "minutes_per_light_visit": mins_per,
+        "saved_doctor_minutes": saved_mins,
+        "visit_intensity_impact": {
+            "standard_visits": T.STANDARD_VISITS,
+            "eligible_pregnancies": sum(1 for pl in plans if pl["eligible"]),
+            "confirmed_pregnancies": sum(1 for pl in plans if pl["confirmed"]),
+            "confirmed_light_visits": confirmed_light,
+            "minutes_per_light_visit": mins_per,
+            "saved_doctor_minutes": saved_mins,
+            "label_uz": "taxminiy, demo ma'lumot",
+        },
+        "synthetic": True,
+    }
 
 
 @router.get("/dashboard/trend")
