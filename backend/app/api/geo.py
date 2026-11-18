@@ -249,6 +249,19 @@ def geo_district(district_id: int, subject: str = SubjectQ, user: User = Depends
             "breadcrumb": [{"level": "country", "name": "O'zbekiston"}, {"level": "region", "id": d.region_id, "name": d.region.name}]}
 
 
+@router.get("/geo/unreachable")
+def geo_unreachable(user: User = Depends(require_admin), db: Session = Depends(get_db)) -> dict:
+    """Unreachable RED alerts per visible polyclinic: AGGREGATE COUNTS ONLY (no codes, no patient data)."""
+    from app.services.quality import unreachable_red_alerts
+
+    rows = []
+    for pc_id in _visible_polyclinics(db, user):
+        pc = db.get(Polyclinic, pc_id)
+        rows.append({"id": pc.id, "code": pc.code, "name": pc.name, "district": pc.district.name,
+                     "unreachable_red": len(unreachable_red_alerts(db, pc.id))})
+    return {"polyclinics": rows, "total": sum(r["unreachable_red"] for r in rows)}
+
+
 @router.get("/geo/polyclinics/search")
 def search_polyclinics(q: str = "", subject: str = SubjectQ, user: User = Depends(current_user),
                        db: Session = Depends(get_db)) -> list[dict]:

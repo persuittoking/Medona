@@ -47,6 +47,7 @@ export function AppShell() {
         { to: "/map", label: "Mahalla xaritasi", icon: "map" },
         { to: "/patients", label: "Bemorlar", icon: "users" },
         ...(user.role !== "nurse" ? [{ to: "/alerts", label: "Ogohlantirishlar", icon: "bell", badge: summary?.open_alerts }] : []),
+        ...(user.role === "department_head" ? [{ to: "/quality", label: "Sifat nazorati", icon: "shield" }] : []),
         { to: "/about", label: "Tizim haqida", icon: "info" },
       ]
     : [

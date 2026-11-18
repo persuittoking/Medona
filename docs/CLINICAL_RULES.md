@@ -152,6 +152,24 @@ PCV-3 at 12 months). Due dates are computed from the birth date. Doses given are
 
 Combination (same idea as task 07): a growth trend **plus any yellow rule**, or both G01 and G02 → **RED**.
 
+## E0. Proof of care — what closes an alert (`thresholds.py`, task 12)
+An alert can be closed only after a NEW visit / infant check (saved after the alert) that contains the measurements
+required by the rules that raised it (`CLOSURE_FIELDS`; the union over all hits):
+
+| Rules | Required new measurement |
+|---|---|
+| R01, R02, P01, T02, Y05 | systolic + diastolic BP |
+| R03, Y06, T01, P02 | haemoglobin |
+| R06 / R08 / R10, Y07 | fetal heart rate / temperature / fasting glucose |
+| P03, T03 / P04, T04 | weight / fundal height |
+| N03, I05 / N05, I07 / N08, N09, I10, G01, G02 / I11 | respiratory rate / temperature / weight / vaccines given |
+| I13, N13, Y13, Y16 | any new visit / check |
+| no mapped rule | BP (pregnancy), temperature + respiratory rate (child) |
+
+Measurement due after "Qabul qildim": 24 h (RED) / 72 h (YELLOW) (`MEASUREMENT_DUE_HOURS`). Unreachable: 3 failed attempts
+over ≥ 2 different days, or a family refusal; retry every 24 h (RED) / 72 h (YELLOW). These are workflow parameters,
+to be agreed with the clinical team.
+
 ## E. ML thresholds
 `ML_YELLOW` / `ML_RED` are written by `backend/ml/train.py`, chosen on a held-out calibration split so that
 the combined system (rules + trends OR ML ≥ yellow) flags ≥85% of pregnancies with an adverse outcome

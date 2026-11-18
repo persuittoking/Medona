@@ -191,6 +191,7 @@ def _settle_alert(db, rng, alert: Alert | None, at: datetime, days_ago: int, act
     elif rng.random() < 0.5:
         alert.acknowledged_at = at + timedelta(minutes=int(rng.integers(10, 90)))
         alert.status = "acknowledged"
+        alert.measurement_due_at = alert.acknowledged_at + timedelta(hours=T.MEASUREMENT_DUE_HOURS[alert.level])
         alert.action_taken = str(rng.choice(actions))
         record_event(db, alert, "acknowledged", assignee_id=alert.assigned_user_id,
                      actor_id=alert.assigned_user_id, note=alert.action_taken, at=alert.acknowledged_at)
@@ -209,6 +210,7 @@ def _score_history(db, rng, pr: Pregnancy, visits: list[dict], nurse: User | Non
                               prev_ml_probs=probs[-2:] or None)
         at = datetime.combine(v["visit_date"], datetime.min.time()) + timedelta(hours=5, minutes=int(rng.integers(0, 300)))
         at = min(at, utcnow() - timedelta(minutes=5))  # never in the future
+        row.created_at = at  # saved "on that day" (closed-loop evidence and quality signals use created_at)
         ra = store_assessment(db, pr, row, res, created_at=at)
         alert = create_alert_if_worse(db, pr, zone, ra, now=at)
         _settle_alert(db, rng, alert, at, (today - v["visit_date"]).days, ACTIONS)
@@ -461,6 +463,8 @@ def _seed_child(db, rng, t: Tenant, pr: Pregnancy, today: date, birth: date, ga:
         if last and (today - day).days > T.INF_CHECK_INTERVAL_DAYS:
             at = datetime.combine(today, datetime.min.time())  # the "no check for > 30 days" sign is from today
         at = min(at, utcnow() - timedelta(minutes=5))
+        if row is not None:
+            row.created_at = at
         ra = store_child_assessment(db, nb, row, res, created_at=at)
         alert = create_alert_if_worse(db, nb, zone, ra, now=at)
         _settle_alert(db, rng, alert, at, (today - day).days, CHILD_ACTIONS, keep_open=keep_open and last)

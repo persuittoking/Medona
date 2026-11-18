@@ -25,7 +25,7 @@ ENDPOINTS = [
     ("POST", "/api/risk/preview", {"pregnancy_id": "{preg}", **VISIT}),
     ("POST", "/api/visits", {"pregnancy_id": "{preg}", **VISIT}),
     ("POST", "/api/alerts/{alert}/ack", {"action_taken": "boshqa poliklinika"}),
-    ("POST", "/api/alerts/{alert}/resolve", {"action_taken": "boshqa poliklinika"}),
+    ("POST", "/api/alerts/{alert}/resolve", {"action_codes": ["A01"], "outcome": "referred"}),
     ("GET", "/api/llm/summary/{preg}", None),
 ]
 # Role limits that apply BEFORE any lookup (a 403 there reveals nothing about the other tenant).
@@ -94,6 +94,6 @@ def test_dependency_is_used_by_every_patient_router():
     from pathlib import Path
 
     api = Path(__file__).resolve().parent.parent / "app" / "api"
-    for name in ("patients.py", "visits.py", "alerts.py", "llm.py", "children.py"):
+    for name in ("patients.py", "visits.py", "alerts.py", "llm.py", "children.py", "care_loop.py"):
         src = (api / name).read_text(encoding="utf-8")
         assert "staff(" in src and "current_user" not in src, name

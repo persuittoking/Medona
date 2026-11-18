@@ -20,6 +20,7 @@ from app.services.children import (
     score_child,
     store_child_assessment,
 )
+from app.services.closed_loop import after_assessment
 from app.services.notify import notify_new_alert_job
 from app.services.scoring import create_alert_if_worse, risk_out
 
@@ -166,6 +167,7 @@ def create_check(body: ChildCheckIn, request: Request, background: BackgroundTas
     db.flush()
     ra = store_child_assessment(db, nb, ck, result)
     alert = create_alert_if_worse(db, nb, old_zone, ra)
+    reopened = after_assessment(db, nb, ra)
     apply_child_assessment(nb, ra)
     refresh_status(nb)
     audit(db, user, "create_child_check", "newborn_check", ck.id, request)
@@ -174,7 +176,7 @@ def create_check(body: ChildCheckIn, request: Request, background: BackgroundTas
     db.commit()
     db.refresh(ck)
     background.add_task(generate_cached, ra.id)
-    if alert is not None:
-        background.add_task(notify_new_alert_job, alert.id)
+    for a in ([alert] if alert is not None else []) + reopened:
+        background.add_task(notify_new_alert_job, a.id)
     return {"check": ck, "assessment": risk_out(ra), "previous_zone": old_zone,
             "alert": alert_out(alert, db) if alert else None}

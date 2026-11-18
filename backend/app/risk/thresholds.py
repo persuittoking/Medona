@@ -137,6 +137,44 @@ VACCINE_SCHEDULE: list[tuple[str, str, int]] = [
     ("MMR-1", "MMR", 365), ("PCV-3", "PCV", 365),
 ]
 
+# --- Closed loop: proof of care (task 12) ---
+# An alert can be closed only after a NEW measurement (visit / infant check saved after the alert was created)
+# that contains the fields relevant to the rules that raised it. An empty tuple = any new visit/check counts.
+_BP = ("systolic", "diastolic")
+CLOSURE_FIELDS: dict[str, tuple[str, ...]] = {
+    **{c: _BP for c in ("R01", "R02", "P01", "T02", "Y05")},
+    **{c: ("hemoglobin_g_l",) for c in ("R03", "Y06", "T01", "P02")},
+    "R06": ("fetal_heart_rate",), "R08": ("temperature_c",),
+    "R10": ("fasting_glucose_mmol",), "Y07": ("fasting_glucose_mmol",),
+    "P03": ("weight_kg",), "T03": ("weight_kg",), "P04": ("fundal_height_cm",), "T04": ("fundal_height_cm",),
+    # children 0-12 months
+    **{c: ("resp_rate",) for c in ("N03", "I05")},
+    **{c: ("temperature_c",) for c in ("N05", "I07")},
+    **{c: ("weight_g",) for c in ("N08", "N09", "I10", "G01", "G02")},
+    "I11": ("vaccines_given",), "I13": (), "N13": (), "Y13": (), "Y16": (),
+}
+CLOSURE_DEFAULT_FIELDS = {"pregnancy": _BP, "child": ("temperature_c", "resp_rate")}
+CLOSURE_OUTCOMES = ("improved", "unchanged", "referred")  # yaxshilandi / o'zgarishsiz / yo'llandi
+RED_CLOSURE_CONFIRM_ROLES = ("department_head", "doctor")  # two-person rule: a DIFFERENT user confirms
+# After "Qabul qildim" a new measurement is due within this time, otherwise the alert escalates again
+# (the demo button "SLA muddatini hozir tugatish" also expires this deadline).
+MEASUREMENT_DUE_HOURS = {"red": 24, "yellow": 72}
+
+# --- Unreachable patient (contact attempts) ---
+UNREACHABLE_FAILED_ATTEMPTS = 3   # failed attempts ...
+UNREACHABLE_MIN_DAYS = 2          # ... spread over at least this many different days
+FAILED_CONTACT_RESULTS = ("not_found", "phone_off", "elsewhere")
+RETRY_HOURS = {"red": 24, "yellow": 72}  # an unreachable / refused alert re-appears until a measurement arrives
+
+# --- Plausibility signals (statistics, NOT accusations; department head only) ---
+QUALITY_WINDOW_DAYS = 30
+QUALITY_MIN_VISITS = 10            # per-user statistics need at least this many BP measurements
+QUALITY_IDENTICAL_BP_SHARE = 0.30  # share of visits with the user's single most common BP pair
+QUALITY_DIGIT_BIAS_SHARE = 0.80    # share of BP values ending in 0 or 5 (about 20% expected without rounding)
+QUALITY_LOW_SYS_SD = 2.0           # systolic standard deviation (mmHg) across different patients
+QUALITY_FAST_ENTRY_S = 30          # visit form opened -> saved in under N seconds
+QUALITY_BURST_PER_MINUTE = 3       # this many visits saved by one user in the same minute
+
 # --- ML probability cut-offs ---
 # BEGIN ML THRESHOLDS (auto-written by backend/ml/train.py — do not edit by hand)
 ML_YELLOW = 0.12

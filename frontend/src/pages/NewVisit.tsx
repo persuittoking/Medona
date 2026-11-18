@@ -39,6 +39,7 @@ export default function NewVisit() {
   const [preview, setPreview] = useState<Risk | null>(null);
   const [previewErr, setPreviewErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [openedAt] = useState(() => new Date().toISOString()); // plausibility signal only (form open -> save time)
   const reqId = useRef(0);
 
   const payload = useMemo(() => {
@@ -70,7 +71,7 @@ export default function NewVisit() {
   async function save() {
     setSaving(true);
     try {
-      const r = await api<VisitCreated>("/api/visits", { method: "POST", json: payload });
+      const r = await api<VisitCreated>("/api/visits", { method: "POST", json: { ...payload, opened_at: openedAt } });
       const z = r.assessment.zone;
       toast({
         kind: r.alert ? "red" : z === "green" ? "success" : "info",

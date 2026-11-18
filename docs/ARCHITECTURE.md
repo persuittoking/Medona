@@ -21,6 +21,20 @@
    - **RED chain**: OvaBMU `specialist` (level 0) → OvaBMU `department_head` (level 1) → `district_admin` (level 2, count-only notification).
    - **YELLOW chain**: OvaBMU `specialist` (level 0) → polyclinic `doctor` (level 1) → `district_admin` (level 2, count-only notification).
    - Background APScheduler job (`every 30 s`) escalates overdue alerts.
+   - **Proof of care / closed loop (`backend/app/services/closed_loop.py`)**: alert statuses
+     `open → acknowledged → (pending_confirmation) → resolved`, plus `escalated` and `unreachable` (still active).
+     "Qabul qildim" stops the current escalation step only and sets `measurement_due_at`; without a new measurement
+     by then the alert escalates again. Closing (`POST /api/alerts/{id}/resolve`) needs a NEW visit / infant check saved
+     after the alert with the fields in `thresholds.CLOSURE_FIELDS` (else 409 *"Yopish uchun yangi o'lchov kerak"*),
+     catalog action codes and an outcome. RED closures need a DIFFERENT doctor / department head
+     (`POST /api/alerts/{id}/confirm`). The first assessment after a closure that is still RED reopens the alert.
+   - **Contact attempts** (`ContactAttempt`, `POST /api/alerts/{id}/contact-attempts`, nurse / doctor): 3 failed attempts
+     over ≥ 2 days or a family refusal → `unreachable` + escalation + retry reminders (24 h RED / 72 h YELLOW).
+     A patient who moved permanently is transferred with `POST /api/patients/{id}/transfer` (responsibility follows the
+     mahalla; `transfer_out` / `transfer_in` audit rows for both polyclinics). Admins: `GET /api/geo/unreachable` (counts only).
+   - **Plausibility signals** (`backend/app/services/quality.py`, `QualityFlag`, `GET /api/quality`, department head only):
+     identical BP share, terminal-digit bias, near-zero variation, form open-to-save < 30 s (`Visit.opened_at`), visits
+     saved in the same minute. Labelled "signal, ayblov emas".
 4. **AI Summary (`backend/app/llm/`)**:
    - De-identified allow-list payload sent to Google Gemini (`google-genai` SDK) with structured output, fallback model, plain-JSON retry, and deterministic Uzbek template fallback (`"Shablon"`).
 5. **Adaptive Visit Intensity (`backend/app/services/visit_intensity.py`)**:

@@ -77,7 +77,7 @@ export interface Visit {
 export interface Alert {
   id: number;
   level: "red" | "yellow";
-  status: "open" | "acknowledged" | "escalated" | "resolved";
+  status: AlertStatus;
   escalation_level: number;
   sla_due_at: string;
   created_at: string;
@@ -106,6 +106,85 @@ export interface Alert {
   performed_at_polyclinic_name?: string | null;
   external_notice_uz?: string | null;
   history: AlertEvent[];
+  // closed loop (task 12)
+  required_measurements: string[];
+  has_measurement: boolean;
+  evidence_at: string | null;
+  measurement_due_at: string | null;
+  resolved_by: string | null;
+  resolved_by_user_id: number | null;
+  confirmed_by: string | null;
+  confirmed_at: string | null;
+  resolution_outcome: string | null;
+  resolution_outcome_uz: string | null;
+  resolution_actions: { code: string; text_uz: string }[];
+  reopened_count: number;
+  unreachable_at: string | null;
+  unreachable_reason: string | null;
+  refused_at: string | null;
+  retry_due_at: string | null;
+  retry_overdue: boolean;
+  failed_attempts: number;
+  contact_attempts: ContactAttempt[];
+}
+
+export type AlertStatus = "open" | "acknowledged" | "escalated" | "unreachable" | "pending_confirmation" | "resolved";
+
+export interface ContactAttempt {
+  id: number;
+  at: string;
+  channel: string;
+  channel_uz: string;
+  result: string;
+  result_uz: string;
+  note: string | null;
+  counselling_uz: string[];
+  user: string | null;
+}
+
+export interface CodeText {
+  code: string;
+  text_uz: string;
+  required?: boolean;
+}
+
+export interface ActionCatalog {
+  actions: CodeText[];
+  outcomes: CodeText[];
+  channels: CodeText[];
+  results: CodeText[];
+  counselling: CodeText[];
+  refusal_note_min: number;
+}
+
+export interface LoopTiles {
+  acknowledged: number;
+  acknowledged_without_measurement: number;
+  acknowledged_without_measurement_rate: number;
+  unreachable_red: number;
+  window_days: number;
+}
+
+export interface QualitySignal {
+  reason: string;
+  label_uz: string;
+  value: number | null;
+  visits: number;
+  patient_codes: string[];
+}
+
+export interface QualityReport {
+  label_uz: string;
+  tiles: LoopTiles;
+  users: { user_id: number; user: string; role: Role | null; signals: QualitySignal[] }[];
+}
+
+export interface TransferTarget {
+  id: number;
+  name: string;
+  polyclinic_code: string;
+  polyclinic_name: string;
+  own: boolean;
 }
 
 export interface AlertEvent {

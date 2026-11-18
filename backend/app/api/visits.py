@@ -3,6 +3,7 @@ from datetime import date
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from sqlalchemy import select
 
+from app.api.alerts import naive_utc
 from app.api.deps import audit
 from app.api.tenancy import Tenant, staff
 from app.models import AuditLog, Newborn, NewbornCheck, Patient, Polyclinic, Pregnancy, Visit
@@ -28,6 +29,7 @@ from app.services.children import (
     score_child,
     store_child_assessment,
 )
+from app.services.closed_loop import after_assessment
 from app.services.notify import notify_external_result, notify_new_alert_job
 from app.services.scoring import (
     apply_assessment,
@@ -47,6 +49,8 @@ def _visit_payload(body: VisitIn | ExternalVisitIn, lmp: date) -> dict:
     if d["visit_date"] > date.today():
         raise HTTPException(422, "Tashrif sanasi kelajakda bo'lishi mumkin emas")
     d["gestational_weeks"] = gest_weeks(lmp, d["visit_date"])
+    if "opened_at" in d:
+        d["opened_at"] = naive_utc(d["opened_at"])
     return d
 
 
@@ -72,6 +76,7 @@ def create_visit(body: VisitIn, request: Request, background: BackgroundTasks,
     db.flush()
     ra = store_assessment(db, preg, visit, result)
     alert = create_alert_if_worse(db, preg, old_zone, ra)
+    reopened = after_assessment(db, preg, ra)
     apply_assessment(preg, ra)
     sync_after_visit(db, preg, ra, actor_id=user.id)
     audit(db, user, "create_visit", "visit", visit.id, request)
@@ -80,8 +85,9 @@ def create_visit(body: VisitIn, request: Request, background: BackgroundTasks,
     db.commit()
     db.refresh(visit)
     background.add_task(generate_cached, ra.id)  # AI summary is ready before the specialist opens the card
-    if alert is not None:  # runs after the summary task, so the Telegram message carries the 3 bullets
-        background.add_task(notify_new_alert_job, alert.id)
+    # runs after the summary task, so the Telegram message carries the 3 bullets; reopened alerts are re-sent
+    for a in ([alert] if alert is not None else []) + reopened:
+        background.add_task(notify_new_alert_job, a.id)
     return {"visit": visit, "assessment": risk_out(ra), "previous_zone": old_zone,
             "alert": alert_out(alert, db) if alert else None}
 
@@ -138,6 +144,7 @@ def create_external_visit(body: ExternalVisitIn, request: Request, background: B
     db.flush()
     ra = store_assessment(db, preg, visit, result)
     alert = create_alert_if_worse(db, preg, old_zone, ra)
+    reopened = after_assessment(db, preg, ra)
     apply_assessment(preg, ra)
     sync_after_visit(db, preg, ra, actor_id=user.id)
     ip = request.client.host if request.client else None
@@ -152,8 +159,8 @@ def create_external_visit(body: ExternalVisitIn, request: Request, background: B
         notify_external_result(db, pat, from_pc, visit.id, pat.code)
     db.commit()
     background.add_task(generate_cached, ra.id)
-    if alert is not None:
-        background.add_task(notify_new_alert_job, alert.id)
+    for a in ([alert] if alert is not None else []) + reopened:
+        background.add_task(notify_new_alert_job, a.id)
     return {
         "id": visit.id,
         "subject": "pregnancy",
@@ -193,6 +200,7 @@ def create_external_check(body: ExternalCheckIn, request: Request, background: B
     db.flush()
     ra = store_child_assessment(db, nb, ck, result)
     alert = create_alert_if_worse(db, nb, old_zone, ra)
+    reopened = after_assessment(db, nb, ra)
     apply_child_assessment(nb, ra)
     refresh_status(nb)
     ip = request.client.host if request.client else None
@@ -207,8 +215,8 @@ def create_external_check(body: ExternalCheckIn, request: Request, background: B
         notify_external_result(db, pat, from_pc, ck.id, nb.code or pat.code)
     db.commit()
     background.add_task(generate_cached, ra.id)
-    if alert is not None:
-        background.add_task(notify_new_alert_job, alert.id)
+    for a in ([alert] if alert is not None else []) + reopened:
+        background.add_task(notify_new_alert_job, a.id)
     return {
         "id": ck.id,
         "subject": "child",

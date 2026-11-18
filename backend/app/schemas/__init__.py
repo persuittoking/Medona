@@ -93,6 +93,7 @@ class VisitIn(BaseModel):
     fundal_height_cm: float | None = Field(None, ge=5, le=50)
     symptoms: list[Symptom] = []
     notes: str | None = Field(None, max_length=2000)
+    opened_at: datetime | None = None  # when the visit form was opened (plausibility signal only)
 
 
 class VisitOut(BaseModel):
@@ -131,7 +132,7 @@ class AlertEventOut(BaseModel):
 class AlertOut(BaseModel):
     id: int
     level: Literal["red", "yellow"]
-    status: Literal["open", "acknowledged", "escalated", "resolved"]
+    status: Literal["open", "acknowledged", "escalated", "unreachable", "pending_confirmation", "resolved"]
     escalation_level: int
     sla_due_at: datetime
     created_at: datetime
@@ -159,6 +160,26 @@ class AlertOut(BaseModel):
     performed_at_polyclinic_name: str | None = None
     external_notice_uz: str | None = None
     history: list[AlertEventOut] = []
+    # closed loop (task 12)
+    required_measurements: list[str] = []
+    has_measurement: bool = False
+    evidence_at: datetime | None = None
+    measurement_due_at: datetime | None = None
+    resolved_by: str | None = None
+    resolved_by_user_id: int | None = None
+    confirmed_by: str | None = None
+    confirmed_at: datetime | None = None
+    resolution_outcome: str | None = None
+    resolution_outcome_uz: str | None = None
+    resolution_actions: list[dict] = []
+    reopened_count: int = 0
+    unreachable_at: datetime | None = None
+    unreachable_reason: str | None = None
+    refused_at: datetime | None = None
+    retry_due_at: datetime | None = None
+    retry_overdue: bool = False
+    failed_attempts: int = 0
+    contact_attempts: list[dict] = []
 
 
 class VisitCreatedOut(BaseModel):
@@ -170,6 +191,29 @@ class VisitCreatedOut(BaseModel):
 
 class ActionIn(BaseModel):
     action_taken: str = Field(min_length=3, max_length=500)
+
+
+class ResolveIn(BaseModel):
+    action_codes: list[str] = Field(min_length=1, max_length=10)  # codes from the action catalog (A01..A28)
+    outcome: Literal["improved", "unchanged", "referred"]  # yaxshilandi / o'zgarishsiz / yo'llandi
+    note: str | None = Field(None, max_length=300)
+
+
+class ConfirmIn(BaseModel):
+    approve: bool = True
+    note: str | None = Field(None, max_length=300)
+
+
+class ContactAttemptIn(BaseModel):
+    channel: Literal["home_visit", "phone", "telegram", "mahalla"]
+    result: Literal["reached", "refused", "elsewhere", "not_found", "phone_off"]
+    note: str | None = Field(None, max_length=500)  # free text: never names, phones or addresses
+    counselling: list[str] = []
+    attempted_at: datetime | None = None
+
+
+class TransferIn(BaseModel):
+    mahalla_id: int
 
 
 class ReassignIn(BaseModel):

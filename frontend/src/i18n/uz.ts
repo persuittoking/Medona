@@ -34,6 +34,8 @@ export const ALERT_STATUS_LABEL: Record<string, string> = {
   open: "Ochiq",
   acknowledged: "Qabul qilingan",
   escalated: "Eskalatsiya",
+  unreachable: "Aloqa o'rnatilmagan",
+  pending_confirmation: "Yopish tasdig'i kutilmoqda",
   resolved: "Yopilgan",
 };
 
@@ -44,6 +46,14 @@ export const ALERT_EVENT_LABEL: Record<string, string> = {
   acknowledged: "Qabul qilindi",
   resolved: "Yopildi",
   admin_notified: "Tuman boshqaruviga xabar berildi (faqat soni)",
+  measured: "Yangi o'lchov kiritildi",
+  resolution_proposed: "Yopish taklif qilindi (ikkinchi xodim tasdig'i kerak)",
+  closure_returned: "Yopish qaytarildi",
+  reopened: "Qayta ochildi (yopilgandan keyin yana qizil zona)",
+  contact_attempt: "Aloqa urinishi",
+  unreachable: "Bemor bilan aloqa o'rnatilmadi",
+  retry_due: "Qayta urinish vaqti keldi",
+  transferred: "Boshqa mahallaga o'tkazildi",
 };
 
 export const SUBJECT_LABEL: Record<"pregnancy" | "child" | "all", string> = {

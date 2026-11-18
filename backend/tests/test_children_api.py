@@ -173,7 +173,7 @@ def test_other_tenant_cannot_reach_children(client):
                                ("POST", "/api/children/risk/preview", {"newborn_id": nb.id, "resp_rate": 40}),
                                ("POST", "/api/children/checks", {"newborn_id": nb.id, "resp_rate": 40}),
                                ("GET", f"/api/llm/summary/child/{nb.id}", None),
-                               ("POST", f"/api/alerts/{alert_id}/resolve", {"action_taken": "boshqa poliklinika"})]:
+                               ("POST", f"/api/alerts/{alert_id}/resolve", {"action_codes": ["A01"], "outcome": "referred"})]:
         r = client.request(method, path, json=body, headers=h)
         assert r.status_code == 404, (path, r.status_code)
     assert all(not r["code"].startswith("B-QQR") for r in client.get("/api/children", headers=h).json())

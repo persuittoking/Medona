@@ -170,6 +170,7 @@ class Visit(Base):
     entered_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     performed_at_polyclinic_id: Mapped[int | None] = mapped_column(ForeignKey("polyclinics.id"), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    opened_at: Mapped[datetime | None] = mapped_column(DateTime)  # when the form was opened (client), plausibility only
     pregnancy: Mapped[Pregnancy] = relationship(back_populates="visits")
     performed_at_polyclinic: Mapped[Polyclinic | None] = relationship()
 
@@ -298,7 +299,8 @@ class Alert(Base):
     pregnancy_id: Mapped[int | None] = mapped_column(ForeignKey("pregnancies.id"), index=True)
     newborn_id: Mapped[int | None] = mapped_column(ForeignKey("newborns.id"), index=True)
     level: Mapped[str] = mapped_column(String(8))  # red | yellow
-    status: Mapped[str] = mapped_column(String(16), default="open", index=True)
+    # open | escalated | acknowledged | unreachable | pending_confirmation | resolved
+    status: Mapped[str] = mapped_column(String(24), default="open", index=True)
     assigned_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True)
     escalation_level: Mapped[int] = mapped_column(Integer, default=0)
     sla_due_at: Mapped[datetime] = mapped_column(DateTime)
@@ -306,10 +308,27 @@ class Alert(Base):
     acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime)
     action_taken: Mapped[str | None] = mapped_column(Text)
+    # closed loop (task 12): closure needs a NEW measurement, structured actions + outcome, RED needs a 2nd person
+    resolved_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    resolution_outcome: Mapped[str | None] = mapped_column(String(16))  # improved | unchanged | referred
+    resolution_action_codes: Mapped[list | None] = mapped_column(JSON)
+    evidence_visit_id: Mapped[int | None] = mapped_column(ForeignKey("visits.id"))
+    evidence_check_id: Mapped[int | None] = mapped_column(ForeignKey("newborn_checks.id"))
+    confirmed_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    measurement_due_at: Mapped[datetime | None] = mapped_column(DateTime)  # set on "Qabul qildim"
+    reopened_count: Mapped[int | None] = mapped_column(Integer, default=0)
+    # unreachable-patient workflow
+    unreachable_at: Mapped[datetime | None] = mapped_column(DateTime)
+    unreachable_reason: Mapped[str | None] = mapped_column(String(200))
+    refused_at: Mapped[datetime | None] = mapped_column(DateTime)
+    retry_due_at: Mapped[datetime | None] = mapped_column(DateTime)
     risk_assessment: Mapped[RiskAssessment] = relationship()
     pregnancy: Mapped[Pregnancy | None] = relationship()
     newborn: Mapped[Newborn | None] = relationship()
     events: Mapped[list["AlertEvent"]] = relationship(back_populates="alert", order_by="AlertEvent.id")
+    contact_attempts: Mapped[list["ContactAttempt"]] = relationship(back_populates="alert",
+                                                                    order_by="ContactAttempt.attempted_at")
 
 
 class AlertEvent(Base):
@@ -324,6 +343,33 @@ class AlertEvent(Base):
     note: Mapped[str | None] = mapped_column(String(300))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     alert: Mapped[Alert] = relationship(back_populates="events")
+
+
+class ContactAttempt(Base):
+    """One attempt to reach the patient (or the child's family) about an alert. `note` is free text: no PII."""
+    __tablename__ = "contact_attempts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    alert_id: Mapped[int] = mapped_column(ForeignKey("alerts.id"), index=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    attempted_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    channel: Mapped[str] = mapped_column(String(16))  # home_visit | phone | telegram | mahalla
+    result: Mapped[str] = mapped_column(String(16))   # reached | refused | elsewhere | not_found | phone_off
+    note: Mapped[str | None] = mapped_column(String(500))
+    counselling: Mapped[list | None] = mapped_column(JSON)  # refusal checklist items done
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    alert: Mapped[Alert] = relationship(back_populates="contact_attempts")
+
+
+class QualityFlag(Base):
+    """Plausibility SIGNAL (not an accusation) for one user, optionally one visit. Recomputed per polyclinic."""
+    __tablename__ = "quality_flags"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    polyclinic_id: Mapped[int] = mapped_column(ForeignKey("polyclinics.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    visit_id: Mapped[int | None] = mapped_column(ForeignKey("visits.id"))
+    reason: Mapped[str] = mapped_column(String(24))  # identical_bp | digit_bias | low_variation | fast_entry | burst
+    value: Mapped[float | None] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
 class LlmSummaryCache(Base):

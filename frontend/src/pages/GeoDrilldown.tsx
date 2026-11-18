@@ -181,8 +181,35 @@ function LevelView({ path, subject, setSubject }: { path: string; subject: Subje
       </div>
 
       {selectedPc ? <MahallasTable items={selectedPc.mahallas} /> : <ChildrenTable level={d.level} nodes={d.children} />}
+      <UnreachableCard />
       <AggNote />
     </div>
+  );
+}
+
+/** Unreachable RED alerts per polyclinic: aggregate counts only (no codes, no patient data). */
+function UnreachableCard() {
+  const q = useQuery({
+    queryKey: ["geo-unreachable"], refetchInterval: 30000,
+    queryFn: () => api<{ polyclinics: { id: number; code: string; name: string; district: string; unreachable_red: number }[]; total: number }>("/api/geo/unreachable"),
+  });
+  if (!q.data) return null;
+  return (
+    <section className="card">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-base">Aloqa o'rnatilmagan qizil ogohlantirishlar</h2>
+        <span className={`text-2xl font-semibold tabular-nums ${q.data.total ? "text-zred" : "text-slate-900"}`}>{q.data.total}</span>
+      </div>
+      <p className="mt-1 text-xs text-slate-500">Faqat soni: bemor kodi va shaxsiy ma'lumotlar ko'rsatilmaydi. Ogohlantirishlar faol qoladi.</p>
+      <ul className="mt-2 grid gap-1 text-sm sm:grid-cols-2">
+        {q.data.polyclinics.map((p) => (
+          <li key={p.id} className="flex justify-between gap-2 rounded px-2 py-1 ring-1 ring-slate-100">
+            <span><span className="font-mono text-xs text-slate-500">{p.code}</span> {p.name}</span>
+            <b className={p.unreachable_red ? "text-zred" : "text-slate-400"}>{p.unreachable_red}</b>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

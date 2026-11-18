@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import type { Alert, Role, Subject } from "../api/types";
+import { LoopButtons, LoopInfo } from "../components/AlertLoop";
 import { SubjectSwitch } from "../components/SubjectSwitch";
 import { Empty, ErrorBox, Skeleton, SourceTag, ZoneBadge } from "../components/ui";
 import { ALERT_EVENT_LABEL, ALERT_STATUS_LABEL, FINAL_DECISION, ROLE_LABEL } from "../i18n/uz";
@@ -23,7 +24,7 @@ const NEXT_TARGET: Partial<Record<Role, string>> = {
   district_admin: "Tuman boshqaruviga (faqat soni)",
 };
 
-const isActive = (a: Alert) => a.status === "open" || a.status === "escalated";
+const isActive = (a: Alert) => a.status === "open" || a.status === "escalated" || a.status === "unreachable";
 const isOverdue = (a: Alert, now: number) => isActive(a) && parseUtc(a.sla_due_at).getTime() <= now;
 
 function useNow(ms = 1000) {
@@ -139,11 +140,12 @@ interface CardProps {
   now: number;
   demoSla: boolean;
   canReassign: boolean;
+  canAck: boolean;
   onModal: (a: Alert, mode: Mode) => void;
   onExpire: (a: Alert) => void;
 }
 
-function AlertCard({ a, now, demoSla, canReassign, onModal, onExpire }: CardProps) {
+function AlertCard({ a, now, demoSla, canReassign, canAck, onModal, onExpire }: CardProps) {
   const [open, setOpen] = useState(false);
   return (
     <div className={`card border-l-4 ${a.level === "red" ? "border-l-zred" : "border-l-zyellow"}`}>
@@ -177,12 +179,14 @@ function AlertCard({ a, now, demoSla, canReassign, onModal, onExpire }: CardProp
           </div>
           {open && <AlertHistory a={a} />}
           {a.action_taken && <div className="mt-1 text-xs text-slate-600">Ko'rilgan chora: {a.action_taken}</div>}
+          <LoopInfo a={a} />
         </div>
         <div className="flex flex-col items-end gap-2">
+          {isActive(a) && <div className="text-xs text-slate-500"><SlaTimer a={a} now={now} /></div>}
+          <LoopButtons a={a} extra={isActive(a) && canAck
+            ? <button className="btn-primary" onClick={() => onModal(a, "ack")}>Qabul qildim</button> : undefined} />
           {isActive(a) && (
             <>
-              <div className="text-xs text-slate-500"><SlaTimer a={a} now={now} /></div>
-              <button className="btn-primary" onClick={() => onModal(a, "ack")}>Qabul qildim</button>
               {canReassign && (
                 <button className="btn-ghost px-3 py-1 text-xs" onClick={() => onModal(a, "reassign")}>Mutaxassisga qayta biriktirish</button>
               )}
@@ -194,21 +198,29 @@ function AlertCard({ a, now, demoSla, canReassign, onModal, onExpire }: CardProp
               )}
             </>
           )}
-          {a.status === "acknowledged" && <button className="btn-ghost" onClick={() => onModal(a, "resolve")}>Yopish</button>}
+          {demoSla && a.status === "acknowledged" && a.escalation_level < 2 && !a.has_measurement && (
+            <button className="btn-ghost px-2 py-1 text-xs" onClick={() => onExpire(a)}
+              title="Faqat demo rejimida: o'lchov muddati tugaydi, keyingi tekshiruvda (≤30 s) qayta eskalatsiya bo'ladi">
+              Demo: o'lchov muddatini hozir tugatish
+            </button>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-type Mode = "ack" | "resolve" | "reassign";
+type Mode = "ack" | "reassign";
 
 const TABS = [
   { key: "active", label: "Faol" },
   { key: "escalated", label: "Eskalatsiya" },
+  { key: "unreachable", label: "Aloqa yo'q" },
   { key: "acknowledged", label: "Qabul qilingan" },
+  { key: "pending_confirmation", label: "Tasdiq kutilmoqda" },
   { key: "resolved", label: "Yopilgan" },
 ];
+const ACK_ROLES = ["specialist", "doctor", "department_head"];
 
 export default function Alerts() {
   const [tab, setTab] = useState("active");
@@ -254,7 +266,7 @@ export default function Alerts() {
     try {
       const json = modal.mode === "reassign" ? { user_id: target, note: action || null } : { action_taken: action };
       await api(`/api/alerts/${modal.alert.id}/${modal.mode}`, { method: "POST", json });
-      const title = { ack: "Ogohlantirish qabul qilindi", resolve: "Ogohlantirish yopildi", reassign: "Mutaxassisga qayta biriktirildi" }[modal.mode];
+      const title = { ack: "Qabul qilindi — endi yangi o'lchov kerak", reassign: "Mutaxassisga qayta biriktirildi" }[modal.mode];
       toast({ kind: "success", title });
       setModal(null);
       setAction("");
@@ -278,6 +290,7 @@ export default function Alerts() {
 
   const card = (a: Alert) => (
     <AlertCard key={a.id} a={a} now={now} demoSla={demoSla} canReassign={isHead && isActive(a)}
+      canAck={ACK_ROLES.includes(user?.role ?? "")}
       onModal={openModal} onExpire={expireSla} />
   );
   const valid = modal?.mode === "reassign" ? target !== "" : action.trim().length >= 3;
@@ -324,8 +337,13 @@ export default function Alerts() {
         <div className="fixed inset-0 z-[1500] flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
           <div className="card w-full max-w-md">
             <h2 className="font-semibold">
-              {{ ack: "Ogohlantirishni qabul qilish", resolve: "Ogohlantirishni yopish", reassign: "Mutaxassisga qayta biriktirish" }[modal.mode]} — {modal.alert.patient_code}
+              {{ ack: "Ogohlantirishni qabul qilish", reassign: "Mutaxassisga qayta biriktirish" }[modal.mode]} — {modal.alert.patient_code}
             </h2>
+            {modal.mode === "ack" && (
+              <p className="mt-2 text-xs text-slate-600">
+                "Qabul qildim" faqat eskalatsiyani to'xtatadi. Ogohlantirish yangi o'lchov ({modal.alert.required_measurements.join(", ")}) kiritilgach yopiladi.
+              </p>
+            )}
             {modal.mode === "reassign" && (
               <>
                 <label className="label mt-3" htmlFor="tgt">Mutaxassis</label>

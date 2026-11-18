@@ -5,6 +5,7 @@ import { CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContai
 import { api } from "../api/client";
 import type { PatientDetail, Visit, VisitPlan, Zone } from "../api/types";
 import { AiSummaryPanel } from "../components/AiSummaryPanel";
+import { LoopButtons, LoopInfo, UNRESOLVED } from "../components/AlertLoop";
 import { MahallaMap } from "../components/MahallaMap";
 import { usePolyclinicMap } from "./PolyclinicMap";
 import { RiskExplain } from "../components/RiskExplain";
@@ -272,6 +273,8 @@ export default function PatientCard() {
                       <span className="text-xs text-slate-500">{ALERT_STATUS_LABEL[a.status]}</span>
                     </div>
                     {a.action_taken && <div className="mt-1 text-xs text-slate-600">Ko'rilgan chora: {a.action_taken}</div>}
+                  <LoopInfo a={a} />
+                  {UNRESOLVED.includes(a.status) && <div className="mt-2"><LoopButtons a={a} /></div>}
                   </li>
                 ))}
               </ul>

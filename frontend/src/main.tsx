@@ -16,6 +16,7 @@ import GeoDrilldown from "./pages/GeoDrilldown";
 import PolyclinicMap from "./pages/PolyclinicMap";
 import Login from "./pages/Login";
 import { About, Analytics, Audit } from "./pages/Misc";
+import Quality from "./pages/Quality";
 import NewChildCheck from "./pages/NewChildCheck";
 import NewVisit from "./pages/NewVisit";
 import PatientCard from "./pages/PatientCard";
@@ -58,6 +59,7 @@ createRoot(document.getElementById("root")!).render(
                   <Route path="/alerts" element={<Alerts />} />
                   <Route path="/analytics" element={<Analytics />} />
                   <Route path="/audit" element={<Audit />} />
+                  <Route path="/quality" element={<Quality />} />
                   <Route path="/about" element={<About />} />
                 </Route>
                 <Route path="*" element={<Navigate to="/" replace />} />

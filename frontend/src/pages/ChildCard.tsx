@@ -4,6 +4,7 @@ import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, X
 import { api } from "../api/client";
 import type { ChildCheck, ChildDetail, Vaccine } from "../api/types";
 import { AiSummaryPanel } from "../components/AiSummaryPanel";
+import { LoopButtons, LoopInfo, UNRESOLVED } from "../components/AlertLoop";
 import { RiskExplain } from "../components/RiskExplain";
 import { Empty, ErrorBox, Skeleton, ZoneBadge } from "../components/ui";
 import { ALERT_STATUS_LABEL, CHILD_SIGN_LABEL, DISCLAIMER, FEEDING_LABEL, SEX_LABEL, VACCINE_STATUS_LABEL } from "../i18n/uz";
@@ -160,6 +161,8 @@ export default function ChildCard() {
                     <span className="text-xs text-slate-500">{ALERT_STATUS_LABEL[a.status]}</span>
                   </div>
                   {a.action_taken && <div className="mt-1 text-xs text-slate-600">Ko'rilgan chora: {a.action_taken}</div>}
+                  <LoopInfo a={a} />
+                  {UNRESOLVED.includes(a.status) && <div className="mt-2"><LoopButtons a={a} /></div>}
                 </li>
               ))}
             </ul>

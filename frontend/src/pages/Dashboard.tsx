@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis } from "recharts";
 import { api } from "../api/client";
-import type { ExternalNotification, Summary, TopRow } from "../api/types";
+import type { ExternalNotification, LoopTiles, Summary, TopRow } from "../api/types";
 import { MahallaMap } from "../components/MahallaMap";
 import { SubjectSwitch } from "../components/SubjectSwitch";
 import { Empty, ErrorBox, Skeleton, ZoneBadge } from "../components/ui";
@@ -10,6 +10,7 @@ import { useAuth } from "../lib/auth";
 import { fmtAge, fmtMinutes, fmtPct, fmtWeeks } from "../lib/format";
 import { useSubject } from "../lib/subject";
 import { NURSE_MAP_INFO, pointsFor, toDots, usePolyclinicMap } from "./PolyclinicMap";
+import { LoopTilesRow } from "./Quality";
 
 const ACTIVE_LABEL = { pregnancy: "Faol homiladorlar", child: "Kuzatuvdagi bolalar", all: "Jami kuzatuvda" } as const;
 
@@ -32,6 +33,8 @@ export default function Dashboard() {
   const top = useQuery({ queryKey: ["top", subject], queryFn: () => api<TopRow[]>(`/api/dashboard/top?subject=${subject}`), refetchInterval: 15000 });
   const extNotifs = useQuery({ queryKey: ["external-notifications"], queryFn: () => api<ExternalNotification[]>("/api/external/notifications?limit=5"), refetchInterval: 15000 });
   const map = usePolyclinicMap(subject);
+  const loop = useQuery({ queryKey: ["quality-tiles"], queryFn: () => api<LoopTiles>("/api/quality/tiles"),
+    enabled: user?.role === "department_head", refetchInterval: 30000 });
   const s = summary.data;
   const canEnterExternal = user?.role === "nurse" || user?.role === "doctor";
 
@@ -76,7 +79,7 @@ export default function Dashboard() {
 
       {summary.error ? <ErrorBox error={summary.error} /> : !s ? <Skeleton className="h-24" /> : (
         <>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 xl:grid-cols-7">
+          <div className={`grid grid-cols-2 gap-4 sm:grid-cols-4 ${loop.data ? "xl:grid-cols-9" : "xl:grid-cols-7"}`}>
             <Kpi label={ACTIVE_LABEL[subject]} value={s.active} />
             <Kpi label="Qizil zona" value={s.red} tone="text-zred" />
             <Kpi label="Sariq zona" value={s.yellow} tone="text-amber-600" />
@@ -84,6 +87,7 @@ export default function Dashboard() {
             <Kpi label="Ochiq ogohlantirishlar" value={s.open_alerts} />
             <Kpi label="SLA buzilgan" value={s.sla_breaches} />
             <Kpi label="Javob vaqti (mediana)" value={fmtMinutes(s.median_ack_minutes)} />
+            {loop.data && <LoopTilesRow tiles={loop.data} />}
           </div>
 
           {s.visit_intensity_impact && (

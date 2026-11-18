@@ -25,7 +25,9 @@ ESCALATION_CHAIN: dict[str, tuple[str, ...]] = {
 }
 MAX_ESCALATION_LEVEL = 2
 NOTIFY_ONLY_ROLES = set(ADMIN_ROLES)  # notified with a count, never assigned a patient
-ACTIVE = ("open", "escalated")
+ACTIVE = ("open", "escalated", "unreachable")  # waiting for "Qabul qildim"; the SLA timer runs
+# not closed yet (closure needs a new measurement; RED closure needs a 2nd person)
+UNRESOLVED = (*ACTIVE, "acknowledged", "pending_confirmation")
 ACK_ROLES = ("specialist", "doctor", "department_head")
 
 
@@ -112,6 +114,43 @@ def _history(db: Session, a: Alert) -> list[dict]:
     return out
 
 
+def _user_name(db: Session, uid: int | None) -> str | None:
+    u = db.get(User, uid) if uid else None
+    return u.full_name if u else None
+
+
+def loop_out(a: Alert, db: Session) -> dict:
+    """Closed-loop fields of an alert: required measurement, evidence, closure, contact attempts (no PII)."""
+    from app.llm.actions import ACTIONS
+    from app.services import closed_loop as cl  # lazy: closed_loop imports this module
+
+    fields = cl.required_fields(a)
+    ev = cl.find_evidence(db, a) if a.status in UNRESOLVED else None
+    attempts = list(a.contact_attempts)
+    now = utcnow()
+    return {
+        "required_measurements": [cl.FIELD_UZ.get(f, f) for f in fields] or ["istalgan yangi ko'rik"],
+        "has_measurement": ev is not None or a.status == "resolved" and bool(a.evidence_visit_id or a.evidence_check_id),
+        "evidence_at": ev.created_at if ev is not None else None,
+        "measurement_due_at": a.measurement_due_at,
+        "resolved_by": _user_name(db, a.resolved_by_id), "resolved_by_user_id": a.resolved_by_id,
+        "confirmed_by": _user_name(db, a.confirmed_by_id), "confirmed_at": a.confirmed_at,
+        "resolution_outcome": a.resolution_outcome,
+        "resolution_outcome_uz": cl.OUTCOME_UZ.get(a.resolution_outcome or ""),
+        "resolution_actions": [{"code": c, "text_uz": ACTIONS.get(c, c)} for c in (a.resolution_action_codes or [])],
+        "reopened_count": a.reopened_count or 0,
+        "unreachable_at": a.unreachable_at, "unreachable_reason": a.unreachable_reason, "refused_at": a.refused_at,
+        "retry_due_at": a.retry_due_at, "retry_overdue": bool(a.retry_due_at and a.retry_due_at <= now),
+        "failed_attempts": len(cl.failed_attempts(attempts)),
+        "contact_attempts": [{
+            "id": c.id, "at": c.attempted_at, "channel": c.channel, "channel_uz": cl.CHANNEL_UZ.get(c.channel, c.channel),
+            "result": c.result, "result_uz": cl.RESULT_UZ.get(c.result, c.result), "note": c.note,
+            "counselling_uz": [cl.COUNSELLING_UZ[k] for k in (c.counselling or []) if k in cl.COUNSELLING_UZ],
+            "user": _user_name(db, c.user_id),
+        } for c in attempts],
+    }
+
+
 def alert_out(a: Alert, db: Session) -> dict:
     from app.services.ai_summary import alert_summary  # lazy: ai_summary -> scoring -> alerts
 
@@ -146,15 +185,17 @@ def alert_out(a: Alert, db: Session) -> dict:
         "performed_at_polyclinic_name": ext_pc.name if ext_pc else None,
         "external_notice_uz": "Tashqi natija kelib tushdi" if ext_pc else None,
         "history": _history(db, a),
+        **loop_out(a, db),
     }
 
 
 # ---------------- escalation ----------------
-def escalate(db: Session, a: Alert, now: datetime) -> list[tuple[str, User | None]]:
+def escalate(db: Session, a: Alert, now: datetime, note: str | None = None) -> list[tuple[str, User | None]]:
     """Move one overdue alert one step up the chain. Returns the notifications to send after commit."""
     poly = alert_polyclinic(a)
     a.escalation_level += 1
-    a.status = "escalated"
+    if a.status != "unreachable":  # an unreachable alert stays visibly "unreachable" while it escalates
+        a.status = "escalated"
     a.sla_due_at = now + sla_delta(a.level)
     role = chain_role(a.level, a.escalation_level)
     target = role_user(db, role, poly.id, poly.district_id)
@@ -165,20 +206,22 @@ def escalate(db: Session, a: Alert, now: datetime) -> list[tuple[str, User | Non
         return [("admin", target)]
     if target is not None:
         a.assigned_user_id = target.id
-    record_event(db, a, "escalated", assignee_id=a.assigned_user_id, at=now)
+    record_event(db, a, "escalated", assignee_id=a.assigned_user_id, at=now, note=note)
     return [("escalated", target)]
 
 
 def run_escalations(db: Session) -> int:
-    """Escalate every open/escalated alert past its SLA (one step per run). Returns the number escalated."""
+    """Escalate every active alert past its SLA (one step per run), plus the closed-loop follow-ups:
+    acknowledged without a new measurement in time -> escalate again; unreachable -> retry reminders."""
     from app.services import notify  # lazy: notify -> ai_summary -> scoring -> alerts
+    from app.services.closed_loop import run_followups
 
     now = utcnow()
     overdue = db.scalars(select(Alert).where(Alert.status.in_(ACTIVE), Alert.sla_due_at < now,
                                              Alert.escalation_level < MAX_ESCALATION_LEVEL)).all()
     todo = [(a, escalate(db, a, now)) for a in overdue]
-    if overdue:
-        db.commit()
+    todo += run_followups(db, now)
+    db.commit()
     for a, notes in todo:
         for kind, user in notes:
             if kind == "admin":
@@ -187,4 +230,4 @@ def run_escalations(db: Session) -> int:
                 notify.notify_escalated(db, a, user)
     if todo:
         db.commit()
-    return len(overdue)
+    return len(todo)

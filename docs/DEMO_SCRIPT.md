@@ -91,6 +91,27 @@ mahallas (`Registon MFY`, `Siyob MFY`, `Bog'ishamol MFY`) with their aggregate z
    `confirm_light_visit`). Remaining visits before 36 weeks switch to `"Yengil"`, and **"Tejalgan shifokor vaqti"** on the
    dashboard increases accordingly. Any yellow or red visit immediately resets all remaining visits back to `"To'liq"`.
 
+## 9. Proof of care — the system trusts measurements, not clicks (Task 12, ≈60 s)
+1. **PL-NUK-001 / nurse** enters the red DEMO1 visit (scene 2). **PL-NUK-001 / specialist** → **Ogohlantirishlar** →
+   **"Qabul qildim"**: this only stops the current escalation step. The card now says *"Yopish uchun yangi o'lchov kerak:
+   arterial bosim (sistolik), arterial bosim (diastolik), gemoglobin · muddat: …"* and **"Yopish 🔒"** cannot close it
+   (the API returns 409 *"Yopish uchun yangi o'lchov kerak"*).
+2. The nurse enters a follow-up visit with BP and haemoglobin → the card shows *"✓ Yangi o'lchov kiritilgan — endi yopish
+   mumkin"*. The specialist closes with **catalog actions** (e.g. A02) + an **outcome** (*Yaxshilandi / O'zgarishsiz /
+   Yo'llandi*). Because it is RED, it goes to **"Tasdiq kutilmoqda"**: the specialist sees *"Boshqa xodim tasdig'i
+   kutilmoqda"* (two-person rule).
+3. **PL-NUK-001 / department_head** → **"Yopishni tasdiqlash"** → *Tasdiqlash* (or *Qaytarish*). The history shows
+   *measured → resolution_proposed → resolved*; both steps are in the audit log. If the first assessment after the
+   closure is still red, the alert **reopens automatically** (*"Qayta ochildi"*).
+4. Unreachable patient: the nurse opens a red patient's card → **"Aloqa urinishi qo'shish"** → *Oila ruxsat bermadi* shows
+   the counselling checklist (danger signs, mahalla women's activist, mahalla leader, another visit time) and requires an
+   informed-refusal note. The alert becomes **"Aloqa o'rnatilmagan"** (still active, escalated to the next role) and
+   re-appears every 24 h (RED) / 72 h (YELLOW) until a measurement is entered. *Bemor boshqa joyda* links to the external
+   result entry and offers a transfer to the new mahalla's polyclinic. 3 failed attempts over 2+ days do the same.
+5. **department_head** → **"Sifat nazorati"**: tiles *"Qabul qilingan, lekin o'lchovsiz"* and *"Aloqa o'rnatilmagan qizil"*
+   (also on the dashboard), plus per-user plausibility signals labelled **"signal, ayblov emas"** (counts + patient codes
+   only). **region.admin** → Hududlar: *"Aloqa o'rnatilmagan qizil ogohlantirishlar"* — counts per polyclinic only.
+
 ## Reset
 Stop the backend, run `reset_demo.bat` (re-seeds the database; DEMO1 is YELLOW again, DEMO5's child GREEN again).
 An older demo DB also keeps working without a reset: on startup the backend adds new columns (never drops
