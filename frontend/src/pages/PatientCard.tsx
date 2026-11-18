@@ -49,9 +49,17 @@ function MiniChart({ data, lines, refs, title, unit }: {
 }
 
 function VisitRow({ v }: { v: Visit }) {
+  const extBadge = v.external_badge_uz ?? (v.performed_at_polyclinic_name ? `Boshqa poliklinikada o'tkazilgan: ${v.performed_at_polyclinic_name}` : null);
   return (
     <li className="border-l-2 border-brand-100 pb-3 pl-4">
-      <div className="text-sm font-semibold">{fmtDate(v.visit_date)} · {fmtWeeks(v.gestational_weeks)}</div>
+      <div className="flex flex-wrap items-center gap-2 text-sm font-semibold">
+        <span>{fmtDate(v.visit_date)} · {fmtWeeks(v.gestational_weeks)}</span>
+        {extBadge && (
+          <span className="rounded bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-800 ring-1 ring-indigo-200">
+            {extBadge}
+          </span>
+        )}
+      </div>
       <div className="mt-0.5 flex flex-wrap gap-x-4 gap-y-0.5 text-sm text-slate-600">
         {v.systolic != null && <span>AB {v.systolic}/{v.diastolic}</span>}
         {v.hemoglobin_g_l != null && <span>Hb {v.hemoglobin_g_l} g/L</span>}

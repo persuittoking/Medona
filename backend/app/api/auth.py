@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import audit, current_user
 from app.db import get_db
-from app.models import ADMIN_ROLES, District, Polyclinic, Region, User
+from app.models import ADMIN_ROLES, District, Mahalla, Polyclinic, Region, User
 from app.schemas import LoginIn, TokenOut, UserOut
 from app.security.auth import create_token, verify_password
 
@@ -17,6 +17,9 @@ def user_out(db: Session, u: User) -> UserOut:
     if u.polyclinic_id:
         pc = db.get(Polyclinic, u.polyclinic_id)
         out.polyclinic_code, out.polyclinic_name = pc.code, pc.name
+    if u.mahalla_id:
+        m = db.get(Mahalla, u.mahalla_id)
+        out.mahalla_name = m.name if m else None
     if u.district_id:
         out.district_name = db.get(District, u.district_id).name
     if u.region_id:

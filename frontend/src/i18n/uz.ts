@@ -89,13 +89,19 @@ export const DISCLAIMER =
   "Bu tizim qaror qabul qilishda yordam beradi, tashxis qo'ymaydi. Yakuniy qarorni shifokor qabul qiladi.";
 
 export const DEMO_USERS: { polyclinic: string; username: string; role: Role; label: string }[] = [
-  { polyclinic: "PL-NUK-001", username: "nurse", role: "nurse", label: "Hamshira" },
-  { polyclinic: "PL-NUK-001", username: "doctor", role: "doctor", label: "Oilaviy shifokor" },
-  { polyclinic: "PL-NUK-001", username: "specialist", role: "specialist", label: "OvaBMU mutaxassisi" },
-  { polyclinic: "PL-NUK-001", username: "department_head", role: "department_head", label: "Bo'lim mudiri (OvaBMU)" },
+  { polyclinic: "PL-NUK-001", username: "nurse", role: "nurse", label: "Hamshira (Nukus)" },
+  { polyclinic: "PL-NUK-001", username: "doctor", role: "doctor", label: "Oilaviy shifokor (Nukus)" },
+  { polyclinic: "PL-NUK-001", username: "specialist", role: "specialist", label: "OvaBMU mutaxassisi (Nukus)" },
+  { polyclinic: "PL-NUK-001", username: "department_head", role: "department_head", label: "Bo'lim mudiri (Nukus)" },
+  { polyclinic: "PL-SAM-003", username: "nurse", role: "nurse", label: "Hamshira (Samarqand · Registon)" },
+  { polyclinic: "PL-SAM-003", username: "nurse2", role: "nurse", label: "Hamshira (Samarqand · Siyob)" },
+  { polyclinic: "PL-SAM-003", username: "doctor", role: "doctor", label: "Oilaviy shifokor (Samarqand)" },
+  { polyclinic: "PL-SAM-003", username: "specialist", role: "specialist", label: "OvaBMU mutaxassisi (Samarqand)" },
   { polyclinic: "PL-CHL-001", username: "nurse", role: "nurse", label: "Hamshira (Chilonzor)" },
-  { polyclinic: "", username: "district.admin", role: "district_admin", label: "Tuman admini" },
-  { polyclinic: "", username: "region.admin", role: "region_admin", label: "Viloyat admini" },
+  { polyclinic: "", username: "district.admin", role: "district_admin", label: "Tuman admini (Nukus)" },
+  { polyclinic: "", username: "region.admin", role: "region_admin", label: "Viloyat admini (QQR)" },
+  { polyclinic: "", username: "sam.district.admin", role: "district_admin", label: "Tuman admini (Samarqand)" },
+  { polyclinic: "", username: "sam.region.admin", role: "region_admin", label: "Viloyat admini (Samarqand)" },
 ];
 
 export const SATELLITE = {

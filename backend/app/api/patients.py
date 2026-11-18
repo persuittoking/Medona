@@ -43,7 +43,7 @@ def _is_overdue(gw: float, last: date | None) -> bool:
 @router.get("", response_model=list[PatientRow])
 def list_patients(zone: str | None = None, mahalla_id: int | None = None, trimester: int | None = Query(None, ge=1, le=3),
                   overdue: bool | None = None, q: str | None = None, status: str = "active",
-                  t: Tenant = Depends(staff())) -> list[dict]:
+                  all_mahallas: bool = False, t: Tenant = Depends(staff())) -> list[dict]:
     db = t.db
     last_visit = select(Visit.pregnancy_id, func.max(Visit.visit_date).label("last")).group_by(Visit.pregnancy_id).subquery()
     stmt = (select(Patient, Pregnancy, last_visit.c.last).join(Pregnancy, Pregnancy.patient_id == Patient.id)
@@ -54,6 +54,8 @@ def list_patients(zone: str | None = None, mahalla_id: int | None = None, trimes
         stmt = stmt.where(Pregnancy.current_zone == zone)
     if mahalla_id:
         stmt = stmt.where(Patient.mahalla_id == mahalla_id)
+    elif not all_mahallas and t.user.role == "nurse" and t.user.mahalla_id is not None:
+        stmt = stmt.where(Patient.mahalla_id == t.user.mahalla_id)
     if q:
         stmt = stmt.where(Patient.code.ilike(f"%{q.strip()}%"))
     rows = []
@@ -68,7 +70,8 @@ def list_patients(zone: str | None = None, mahalla_id: int | None = None, trimes
                      "name_masked": mask_name(decrypt(pat.full_name_enc)), "age": _age(pat.birth_date),
                      "gestational_weeks": gw, "trimester": tri, "zone": preg.current_zone,
                      "risk": preg.current_risk_score, "last_visit_date": last, "overdue": od,
-                     "district_name": pat.polyclinic.district.name, "mahalla": pat.mahalla.name})
+                     "district_name": pat.polyclinic.district.name, "mahalla": pat.mahalla.name,
+                     "mahalla_id": pat.mahalla_id})
     order = {"red": 0, "yellow": 1, "green": 2}
     rows.sort(key=lambda r: (order[r["zone"]], -(r["risk"] or 0)))
     return rows

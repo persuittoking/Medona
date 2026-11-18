@@ -2,8 +2,10 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { CircleMarker, MapContainer, Marker, Polygon, Polyline, TileLayer, Tooltip, useMap } from "react-leaflet";
+import { Link } from "react-router-dom";
 import type { GeoPolygon, Zone } from "../api/types";
 import { SATELLITE, STREETS, ZONE_COLOR, ZONE_LABEL } from "../i18n/uz";
+import { ZoneBadge } from "./ui";
 
 type LatLng = [number, number];
 const WORLD: LatLng[] = [[-89.9, -179.9], [-89.9, 179.9], [89.9, 179.9], [89.9, -179.9]];
@@ -30,6 +32,7 @@ export interface MapDot {
   label: string;
   /** circle = pregnant woman, square = child 0-12 months (same zone colours) */
   shape?: "circle" | "square";
+  href?: string;
   onClick?: () => void;
 }
 
@@ -57,6 +60,16 @@ function FitTo({ bounds, padding }: { bounds: L.LatLngBounds; padding: number })
   return null;
 }
 
+function FocusDot({ dot }: { dot: MapDot | null | undefined }) {
+  const map = useMap();
+  useEffect(() => {
+    if (dot) {
+      map.setView([dot.lat, dot.lon], Math.max(map.getZoom(), 16.5), { animate: true });
+    }
+  }, [map, dot]);
+  return null;
+}
+
 /**
  * Satellite-first map of one or more mahalla territories.
  * - fits the territory with padding ("slightly bigger"),
@@ -65,7 +78,7 @@ function FitTo({ bounds, padding }: { bounds: L.LatLngBounds; padding: number })
  * - optional zone-coloured dots (patient home points — staff of the own polyclinic only).
  */
 export function MahallaMap({ areas, dots = [], height = 420, padding = 0.18, dimOutside = true, interactive = true,
-  defaultBase = "satellite", legend = true, overlay }: {
+  defaultBase = "satellite", legend = true, overlay, selectedDot, onCloseSelectedDot }: {
   areas: MapArea[];
   dots?: MapDot[];
   height?: number | string;
@@ -75,6 +88,8 @@ export function MahallaMap({ areas, dots = [], height = 420, padding = 0.18, dim
   defaultBase?: "satellite" | "streets";
   legend?: boolean;
   overlay?: ReactNode;
+  selectedDot?: MapDot | null;
+  onCloseSelectedDot?: () => void;
 }) {
   const [base, setBase] = useState<"satellite" | "streets">(defaultBase);
   const allRings = useMemo(() => areas.map((a) => ({ ...a, rings: rings(a.boundary) })), [areas]);
@@ -91,6 +106,7 @@ export function MahallaMap({ areas, dots = [], height = 420, padding = 0.18, dim
         zoomControl={interactive} doubleClickZoom={interactive} attributionControl style={{ height: "100%", width: "100%" }}>
         <TileLayer key={base} url={tiles.url} attribution={tiles.attribution} maxZoom={19} />
         <FitTo bounds={bounds} padding={padding} />
+        <FocusDot dot={selectedDot} />
         {dimOutside && allRings.length > 0 && (
           <Polygon positions={[WORLD, ...allRings.map((a) => a.rings[0])]} interactive={false}
             pathOptions={{ stroke: false, fillColor: "#020617", fillOpacity: base === "satellite" ? 0.55 : 0.35 }} />
@@ -116,13 +132,30 @@ export function MahallaMap({ areas, dots = [], height = 420, padding = 0.18, dim
             <Tooltip className="zone-tip" direction="top" offset={[0, -6]}>{d.label} · {ZONE_LABEL[d.zone]}</Tooltip>
           </Marker>
         ) : (
-          <CircleMarker key={d.key} center={[d.lat, d.lon]} radius={d.zone === "red" ? 7 : 5.5}
+          <CircleMarker key={d.key} center={[d.lat, d.lon]} radius={selectedDot?.key === d.key ? 10 : d.zone === "red" ? 7 : 5.5}
             eventHandlers={d.onClick ? { click: d.onClick } : undefined}
-            pathOptions={{ color: "#ffffff", weight: 1.5, fillColor: ZONE_COLOR[d.zone], fillOpacity: 1 }}>
+            pathOptions={{ color: selectedDot?.key === d.key ? "#0F172A" : "#ffffff", weight: selectedDot?.key === d.key ? 3 : 1.5, fillColor: ZONE_COLOR[d.zone], fillOpacity: 1 }}>
             <Tooltip className="zone-tip" direction="top" offset={[0, -6]}>{d.label} · {ZONE_LABEL[d.zone]}</Tooltip>
           </CircleMarker>
         ))}
       </MapContainer>
+
+      {selectedDot && (
+        <div className="absolute left-3 top-14 z-[550] flex items-center gap-3 rounded-lg bg-white/95 px-3 py-2 text-xs shadow-pop ring-1 ring-slate-300">
+          <ZoneBadge zone={selectedDot.zone} />
+          <span className="font-mono font-semibold text-slate-900">{selectedDot.label}</span>
+          {selectedDot.href && (
+            <Link to={selectedDot.href} className="font-semibold text-brand-700 hover:underline">
+              Karta →
+            </Link>
+          )}
+          {onCloseSelectedDot && (
+            <button type="button" onClick={onCloseSelectedDot} className="ml-1 text-slate-400 hover:text-slate-700" aria-label="Yopish">
+              ✕
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="absolute right-3 top-3 z-[500] flex overflow-hidden rounded-lg bg-white/95 text-xs font-medium shadow-pop ring-1 ring-slate-200">
         {(["satellite", "streets"] as const).map((b) => (

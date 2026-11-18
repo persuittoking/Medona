@@ -59,7 +59,8 @@ def latest_by_child(t: Tenant, ids: list[int]) -> dict[int, RiskAssessment]:
     return {ra.newborn_id: ra for ra in rows}
 
 
-def child_rows(t: Tenant, status: str = "active", zone: str | None = None, q: str | None = None) -> list[dict]:
+def child_rows(t: Tenant, status: str = "active", zone: str | None = None, q: str | None = None,
+               mahalla_id: int | None = None, all_mahallas: bool = False) -> list[dict]:
     graduate_due(t)
     last_check = (select(NewbornCheck.newborn_id, func.max(NewbornCheck.check_date).label("last"))
                   .group_by(NewbornCheck.newborn_id).subquery())
@@ -67,6 +68,10 @@ def child_rows(t: Tenant, status: str = "active", zone: str | None = None, q: st
                       .where(Newborn.status == status))
     if zone:
         stmt = stmt.where(Newborn.current_zone == zone)
+    if mahalla_id:
+        stmt = stmt.where(Newborn.mahalla_id == mahalla_id)
+    elif not all_mahallas and t.user.role == "nurse" and t.user.mahalla_id is not None:
+        stmt = stmt.where(Newborn.mahalla_id == t.user.mahalla_id)
     if q:
         stmt = stmt.where(Newborn.code.ilike(f"%{q.strip()}%"))
     rows = t.db.execute(stmt).all()
@@ -78,15 +83,17 @@ def child_rows(t: Tenant, status: str = "active", zone: str | None = None, q: st
         out.append({"newborn_id": nb.id, "code": nb.code, "mother_patient_id": mother.id, "mother_code": mother.code,
                     "sex": nb.sex, "age_days": age_days(nb.birth_date, today), "zone": nb.current_zone,
                     "risk": nb.current_risk_score, "last_check_date": last, "overdue": is_overdue(nb, last, today),
-                    "mahalla": mother.mahalla.name, "main_reason": main_reason(ras.get(nb.id))})
+                    "mahalla": mother.mahalla.name, "mahalla_id": mother.mahalla_id,
+                    "main_reason": main_reason(ras.get(nb.id))})
     out.sort(key=lambda r: (ZONE_ORDER[r["zone"]], -(r["risk"] or 0), r["age_days"]))
     return out
 
 
 @router.get("", response_model=list[ChildRow])
 def list_children(zone: str | None = None, q: str | None = None, status: str = "active",
+                  mahalla_id: int | None = None, all_mahallas: bool = False,
                   t: Tenant = Depends(staff())) -> list[dict]:
-    return child_rows(t, status, zone, q)
+    return child_rows(t, status, zone, q, mahalla_id=mahalla_id, all_mahallas=all_mahallas)
 
 
 def _growth(nb: Newborn) -> tuple[list[dict], list[dict]]:

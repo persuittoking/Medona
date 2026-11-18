@@ -25,10 +25,12 @@ class UserOut(BaseModel):
     full_name: str
     role: Role
     polyclinic_id: int | None
+    mahalla_id: int | None = None
     region_id: int | None
     district_id: int | None
     polyclinic_code: str | None = None
     polyclinic_name: str | None = None
+    mahalla_name: str | None = None
     district_name: str | None = None
     region_name: str | None = None
 
@@ -109,6 +111,11 @@ class VisitOut(BaseModel):
     fundal_height_cm: float | None
     symptoms: list[str]
     notes: str | None
+    entered_by: int | None = None
+    performed_at_polyclinic_id: int | None = None
+    performed_at_polyclinic_name: str | None = None
+    performed_at_polyclinic_code: str | None = None
+    external_badge_uz: str | None = None
 
 
 class AlertEventOut(BaseModel):
@@ -149,6 +156,8 @@ class AlertOut(BaseModel):
     summary_status: Literal["ready", "pending", "unavailable"] = "pending"
     summary_bullets: list[str] | None = None
     summary_source: Literal["ai", "template"] | None = None
+    performed_at_polyclinic_name: str | None = None
+    external_notice_uz: str | None = None
     history: list[AlertEventOut] = []
 
 
@@ -182,6 +191,7 @@ class PatientRow(BaseModel):
     overdue: bool
     district_name: str
     mahalla: str
+    mahalla_id: int | None = None
 
 
 class NewbornOut(BaseModel):
@@ -253,6 +263,11 @@ class ChildCheckOut(BaseModel):
     vaccines_given: list[str] | None
     vaccines_due_overdue: list[str] | None
     notes: str | None
+    entered_by: int | None = None
+    performed_at_polyclinic_id: int | None = None
+    performed_at_polyclinic_name: str | None = None
+    performed_at_polyclinic_code: str | None = None
+    external_badge_uz: str | None = None
 
 
 class ChildRow(BaseModel):
@@ -267,6 +282,7 @@ class ChildRow(BaseModel):
     last_check_date: date | None
     overdue: bool
     mahalla: str
+    mahalla_id: int | None = None
     main_reason: str | None
 
 
@@ -361,3 +377,81 @@ class PiiOut(BaseModel):
     full_name: str
     pinfl: str
     phone: str
+
+
+class ExternalLookupIn(BaseModel):
+    pinfl: str = Field(min_length=4, max_length=32)
+
+
+class ExternalChildItem(BaseModel):
+    newborn_id: int
+    code: str
+
+
+class ExternalLookupOut(BaseModel):
+    """Minimum-necessary view for an external polyclinic: NO name, history, zone or address."""
+    patient_code: str
+    responsible_polyclinic_id: int
+    responsible_polyclinic_code: str
+    responsible_polyclinic_name: str
+    mahalla_name: str
+    has_active_pregnancy: bool
+    children: list[ExternalChildItem] = []
+
+
+class ExternalVisitIn(BaseModel):
+    pinfl: str | None = Field(None, min_length=4, max_length=32)
+    pregnancy_id: int | None = None
+    patient_code: str | None = None
+    visit_date: date | None = None
+    systolic: int | None = Field(None, ge=60, le=260)
+    diastolic: int | None = Field(None, ge=30, le=180)
+    proteinuria: Proteinuria | None = None
+    hemoglobin_g_l: float | None = Field(None, ge=30, le=200)
+    fasting_glucose_mmol: float | None = Field(None, ge=1.5, le=35)
+    weight_kg: float | None = Field(None, ge=30, le=200)
+    temperature_c: float | None = Field(None, ge=33, le=43)
+    fetal_heart_rate: int | None = Field(None, ge=50, le=240)
+    fundal_height_cm: float | None = Field(None, ge=5, le=50)
+    symptoms: list[Symptom] = []
+    notes: str | None = Field(None, max_length=2000)
+
+
+class ExternalCheckIn(BaseModel):
+    pinfl: str | None = Field(None, min_length=4, max_length=32)
+    newborn_id: int | None = None
+    child_code: str | None = None
+    check_date: date | None = None
+    weight_g: int | None = Field(None, ge=500, le=16000)
+    length_cm: float | None = Field(None, ge=30, le=95)
+    head_circ_cm: float | None = Field(None, ge=20, le=55)
+    resp_rate: int | None = Field(None, ge=10, le=120)
+    temperature_c: float | None = Field(None, ge=33, le=43)
+    feeding: Feeding | None = None
+    not_feeding_well: bool = False
+    vomiting_everything: bool = False
+    convulsions: bool = False
+    lethargic: bool = False
+    movement_only_when_stimulated: bool = False
+    severe_chest_indrawing: bool = False
+    jaundice_first_24h: bool = False
+    jaundice_palms_soles: bool = False
+    blood_in_stool: bool = False
+    diarrhoea_days: int | None = Field(None, ge=0, le=60)
+    cough_days: int | None = Field(None, ge=0, le=120)
+    vaccines_given: list[str] = []
+    notes: str | None = Field(None, max_length=2000)
+
+
+class ExternalEntryOut(BaseModel):
+    """Minimum-necessary confirmation after saving an external visit or infant check."""
+    id: int
+    subject: Literal["pregnancy", "child"] = "pregnancy"
+    patient_code: str
+    responsible_polyclinic_id: int
+    responsible_polyclinic_code: str
+    responsible_polyclinic_name: str
+    mahalla_name: str
+    performed_at_polyclinic_id: int | None
+    performed_at_polyclinic_name: str
+    message_uz: str

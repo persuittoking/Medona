@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis } from "recharts";
 import { api } from "../api/client";
-import type { Summary, TopRow } from "../api/types";
+import type { ExternalNotification, Summary, TopRow } from "../api/types";
 import { MahallaMap } from "../components/MahallaMap";
 import { SubjectSwitch } from "../components/SubjectSwitch";
 import { Empty, ErrorBox, Skeleton, ZoneBadge } from "../components/ui";
@@ -30,8 +30,10 @@ export default function Dashboard() {
   const summary = useQuery({ queryKey: ["summary", subject], queryFn: () => api<Summary>(`/api/dashboard/summary?subject=${subject}`), refetchInterval: 15000 });
   const trend = useQuery({ queryKey: ["trend", subject], queryFn: () => api<{ week_start: string; red: number; yellow: number }[]>(`/api/dashboard/trend?subject=${subject}`) });
   const top = useQuery({ queryKey: ["top", subject], queryFn: () => api<TopRow[]>(`/api/dashboard/top?subject=${subject}`), refetchInterval: 15000 });
-  const map = usePolyclinicMap();
+  const extNotifs = useQuery({ queryKey: ["external-notifications"], queryFn: () => api<ExternalNotification[]>("/api/external/notifications?limit=5"), refetchInterval: 15000 });
+  const map = usePolyclinicMap(subject);
   const s = summary.data;
+  const canEnterExternal = user?.role === "nurse" || user?.role === "doctor";
 
   return (
     <div className="space-y-6">
@@ -40,8 +42,37 @@ export default function Dashboard() {
           <h1>Bosh sahifa</h1>
           <p className="mt-1 text-sm text-slate-500">{user?.polyclinic_name}</p>
         </div>
-        <SubjectSwitch value={subject} onChange={setSubject} counts={s?.counts} />
+        <div className="flex flex-wrap items-center gap-2">
+          {canEnterExternal && (
+            <Link to="/external-visit" className="btn-ghost btn-sm ring-1 ring-slate-300">
+              + Boshqa poliklinika bemori
+            </Link>
+          )}
+          <SubjectSwitch value={subject} onChange={setSubject} counts={s?.counts} />
+        </div>
       </div>
+
+      {extNotifs.data && extNotifs.data.length > 0 && (
+        <div className="rounded-card border border-indigo-200 bg-indigo-50/70 p-3 text-sm text-indigo-950">
+          <div className="font-semibold">📥 Tashqi natija kelib tushdi</div>
+          <ul className="mt-1 space-y-1 text-xs">
+            {extNotifs.data.map((n) => (
+              <li key={`${n.kind}-${n.id}`} className="flex flex-wrap items-center gap-2">
+                <Link
+                  to={n.kind === "child" ? `/children/${n.newborn_id}` : `/patients/${n.patient_id}`}
+                  className="font-mono font-semibold text-brand-800 hover:underline"
+                >
+                  {n.code}
+                </Link>
+                <span>· {n.mahalla}</span>
+                <span className="rounded bg-white px-1.5 py-0.5 font-medium text-indigo-800 ring-1 ring-indigo-200">
+                  {n.badge_uz}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {summary.error ? <ErrorBox error={summary.error} /> : !s ? <Skeleton className="h-24" /> : (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 xl:grid-cols-7">

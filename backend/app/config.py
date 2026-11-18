@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     jwt_secret: str = "dev-only-insecure-secret"
     jwt_expire_minutes: int = 60 * 12
     fernet_key: str = ""
+    pinfl_hash_secret: str = ""  # HMAC-SHA256 key for exact-match JShShIR lookup (defaults to jwt_secret)
     llm_provider: str = "gemini"
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.1-flash-lite"

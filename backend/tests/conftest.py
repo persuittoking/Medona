@@ -17,7 +17,7 @@ os.environ["JWT_SECRET"] = "test-secret"
 
 import pytest
 
-NUK, CHL, FRG = "PL-NUK-001", "PL-CHL-001", "PL-FRG-001"
+NUK, CHL, FRG, SAM = "PL-NUK-001", "PL-CHL-001", "PL-FRG-001", "PL-SAM-003"
 
 
 @pytest.fixture(scope="module")

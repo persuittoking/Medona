@@ -1,9 +1,18 @@
-"""Field-level encryption (Fernet) for PII columns, plus UI masking helpers."""
+"""Field-level encryption (Fernet) for PII columns, keyed PINFL hash, plus UI masking helpers."""
+import hashlib
+import hmac
 from functools import lru_cache
 
 from cryptography.fernet import Fernet
 
 from app.config import get_settings
+
+
+def hash_pinfl(pinfl: str) -> str:
+    """Keyed HMAC-SHA256 of a JShShIR for exact-match lookup while plain JShShIR stays Fernet-encrypted."""
+    s = get_settings()
+    secret = (s.pinfl_hash_secret or s.jwt_secret).encode()
+    return hmac.new(secret, pinfl.strip().encode(), hashlib.sha256).hexdigest()
 
 
 @lru_cache

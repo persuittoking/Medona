@@ -159,6 +159,11 @@ function AlertCard({ a, now, demoSla, canReassign, onModal, onExpire }: CardProp
               </span>
             )}
             <span className="text-sm text-slate-500">· {a.mahalla_name}</span>
+            {a.external_notice_uz && (
+              <span className="rounded bg-indigo-50 px-1.5 text-xs font-semibold text-indigo-800 ring-1 ring-indigo-200">
+                📥 {a.external_notice_uz}{a.performed_at_polyclinic_name ? ` (Boshqa poliklinikada o'tkazilgan: ${a.performed_at_polyclinic_name})` : ""}
+              </span>
+            )}
             {a.trend_driven && <TrendBadge />}
             <EscalationBadge a={a} />
           </div>

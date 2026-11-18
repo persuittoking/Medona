@@ -58,6 +58,26 @@ def ensure_columns(eng=None) -> list[str]:
     return added
 
 
+def backfill_pinfl_hashes(eng=None) -> int:
+    """Populate Patient.pinfl_hash for any existing rows whose hash is NULL (older demo DBs)."""
+    from sqlalchemy import select
+
+    from app.models import Patient
+    from app.security.crypto import decrypt, hash_pinfl
+
+    eng = eng or engine
+    maker = sessionmaker(bind=eng, autoflush=False, expire_on_commit=False)
+    n = 0
+    with maker() as db:
+        rows = db.scalars(select(Patient).where(Patient.pinfl_hash.is_(None))).all()
+        for pat in rows:
+            pat.pinfl_hash = hash_pinfl(decrypt(pat.pinfl_enc))
+            n += 1
+        if n:
+            db.commit()
+    return n
+
+
 def get_db() -> Iterator[Session]:
     db = SessionLocal()
     try:

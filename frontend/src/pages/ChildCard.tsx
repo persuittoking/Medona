@@ -68,9 +68,17 @@ function Vaccines({ list }: { list: Vaccine[] }) {
 
 function CheckRow({ c }: { c: ChildCheck }) {
   const signs = Object.keys(CHILD_SIGN_LABEL).filter((k) => c[k as keyof ChildCheck] === true);
+  const extBadge = c.external_badge_uz ?? (c.performed_at_polyclinic_name ? `Boshqa poliklinikada o'tkazilgan: ${c.performed_at_polyclinic_name}` : null);
   return (
     <li className="border-l-2 border-brand-100 pb-3 pl-4">
-      <div className="text-sm font-semibold">{fmtDate(c.check_date)}{c.age_days != null && ` · ${fmtAge(c.age_days, true)}`}</div>
+      <div className="flex flex-wrap items-center gap-2 text-sm font-semibold">
+        <span>{fmtDate(c.check_date)}{c.age_days != null && ` · ${fmtAge(c.age_days, true)}`}</span>
+        {extBadge && (
+          <span className="rounded bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-800 ring-1 ring-indigo-200">
+            {extBadge}
+          </span>
+        )}
+      </div>
       <div className="mt-0.5 flex flex-wrap gap-x-4 gap-y-0.5 text-sm text-slate-600">
         {c.weight_g != null && <span>Vazn {(c.weight_g / 1000).toFixed(2)} kg</span>}
         {c.length_cm != null && <span>Bo'y {c.length_cm} sm</span>}

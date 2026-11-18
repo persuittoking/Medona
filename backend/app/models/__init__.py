@@ -14,8 +14,9 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    event,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
 from app.db import Base
 
@@ -85,10 +86,12 @@ class User(Base):
     full_name: Mapped[str] = mapped_column(String(120))
     role: Mapped[str] = mapped_column(String(16))  # POLYCLINIC_ROLES | district_admin | region_admin
     polyclinic_id: Mapped[int | None] = mapped_column(ForeignKey("polyclinics.id"), index=True)
+    mahalla_id: Mapped[int | None] = mapped_column(ForeignKey("mahallas.id"), index=True)
     region_id: Mapped[int | None] = mapped_column(ForeignKey("regions.id"))
     district_id: Mapped[int | None] = mapped_column(ForeignKey("districts.id"))
     telegram_chat_id: Mapped[str | None] = mapped_column(String(32))
     password_hash: Mapped[str] = mapped_column(String(128))
+    mahalla: Mapped[Mahalla | None] = relationship()
 
 
 class Patient(Base):
@@ -97,10 +100,11 @@ class Patient(Base):
     code: Mapped[str] = mapped_column(String(32), unique=True)
     full_name_enc: Mapped[str] = mapped_column(Text)
     pinfl_enc: Mapped[str] = mapped_column(Text)
+    pinfl_hash: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
     phone_enc: Mapped[str] = mapped_column(Text)
     home_enc: Mapped[str] = mapped_column(Text)  # encrypted "lat,lon" — personal data, own polyclinic only
     birth_date: Mapped[date] = mapped_column(Date)
-    polyclinic_id: Mapped[int] = mapped_column(ForeignKey("polyclinics.id"), index=True)  # tenant key
+    polyclinic_id: Mapped[int] = mapped_column(ForeignKey("polyclinics.id"), index=True)  # tenant key (= mahalla.polyclinic_id)
     mahalla_id: Mapped[int] = mapped_column(ForeignKey("mahallas.id"), index=True)
     distance_to_perinatal_km: Mapped[float] = mapped_column(Float)
     assigned_nurse_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True)
@@ -160,8 +164,24 @@ class Visit(Base):
     symptoms: Mapped[list] = mapped_column(JSON, default=list)
     notes: Mapped[str | None] = mapped_column(Text)
     entered_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    performed_at_polyclinic_id: Mapped[int | None] = mapped_column(ForeignKey("polyclinics.id"), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     pregnancy: Mapped[Pregnancy] = relationship(back_populates="visits")
+    performed_at_polyclinic: Mapped[Polyclinic | None] = relationship()
+
+    @property
+    def performed_at_polyclinic_name(self) -> str | None:
+        return self.performed_at_polyclinic.name if self.performed_at_polyclinic else None
+
+    @property
+    def performed_at_polyclinic_code(self) -> str | None:
+        return self.performed_at_polyclinic.code if self.performed_at_polyclinic else None
+
+    @property
+    def external_badge_uz(self) -> str | None:
+        if self.performed_at_polyclinic:
+            return f"Boshqa poliklinikada o'tkazilgan: {self.performed_at_polyclinic.name}"
+        return None
 
 
 CHILD_STATUSES = ("active", "graduated", "deceased", "moved")  # active until the 1st birthday, then graduated
@@ -225,8 +245,24 @@ class NewbornCheck(Base):
     vaccines_due_overdue: Mapped[list | None] = mapped_column(JSON, default=list)  # computed: overdue dose codes
     notes: Mapped[str | None] = mapped_column(Text)
     entered_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    performed_at_polyclinic_id: Mapped[int | None] = mapped_column(ForeignKey("polyclinics.id"), index=True)
     created_at: Mapped[datetime | None] = mapped_column(DateTime, default=utcnow)
     newborn: Mapped[Newborn] = relationship(back_populates="checks")
+    performed_at_polyclinic: Mapped[Polyclinic | None] = relationship()
+
+    @property
+    def performed_at_polyclinic_name(self) -> str | None:
+        return self.performed_at_polyclinic.name if self.performed_at_polyclinic else None
+
+    @property
+    def performed_at_polyclinic_code(self) -> str | None:
+        return self.performed_at_polyclinic.code if self.performed_at_polyclinic else None
+
+    @property
+    def external_badge_uz(self) -> str | None:
+        if self.performed_at_polyclinic:
+            return f"Boshqa poliklinikada o'tkazilgan: {self.performed_at_polyclinic.name}"
+        return None
 
 
 class RiskAssessment(Base):
@@ -245,6 +281,8 @@ class RiskAssessment(Base):
     model_version: Mapped[str | None] = mapped_column(String(32))
     explanation_uz: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    visit: Mapped[Visit | None] = relationship()
+    check: Mapped[NewbornCheck | None] = relationship()
 
 
 class Alert(Base):
@@ -302,8 +340,29 @@ class AuditLog(Base):
     action: Mapped[str] = mapped_column(String(48))
     entity: Mapped[str] = mapped_column(String(32))
     entity_id: Mapped[int | None] = mapped_column(Integer)
+    from_polyclinic_id: Mapped[int | None] = mapped_column(ForeignKey("polyclinics.id"))
+    to_polyclinic_id: Mapped[int | None] = mapped_column(ForeignKey("polyclinics.id"))
+    details: Mapped[str | None] = mapped_column(String(200))
     ip: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+
+
+@event.listens_for(Session, "before_flush")
+def _sync_patient_polyclinic(session: Session, _flush_context, _instances) -> None:
+    """Responsibility follows the mahalla: Patient.polyclinic_id always equals Mahalla.polyclinic_id."""
+    for obj in list(session.new) + list(session.dirty):
+        if isinstance(obj, Patient):
+            m = obj.mahalla if obj.mahalla is not None and obj.mahalla.id == obj.mahalla_id else None
+            if m is None and obj.mahalla_id is not None:
+                m = session.get(Mahalla, obj.mahalla_id)
+            if m is not None:
+                obj.polyclinic_id = m.polyclinic_id
+                if "pregnancies" in obj.__dict__:
+                    for pr in obj.pregnancies:
+                        if "newborns" in pr.__dict__:
+                            for nb in pr.newborns:
+                                nb.mahalla_id = m.id
+                                nb.polyclinic_id = m.polyclinic_id
 
 
 Index("ix_visits_preg_date", Visit.pregnancy_id, Visit.visit_date)

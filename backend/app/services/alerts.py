@@ -121,6 +121,12 @@ def alert_out(a: Alert, db: Session) -> dict:
     summary = alert_summary(db, a.risk_assessment_id)
     if summary["summary_status"] == "pending" and a.status not in ACTIVE:
         summary["summary_status"] = "unavailable"  # closed alerts are not (re)generated
+    ext_pc = None
+    if ra is not None:
+        if ra.visit is not None and ra.visit.performed_at_polyclinic is not None:
+            ext_pc = ra.visit.performed_at_polyclinic
+        elif ra.check is not None and ra.check.performed_at_polyclinic is not None:
+            ext_pc = ra.check.performed_at_polyclinic
     return {
         "id": a.id, "level": a.level, "status": a.status, "escalation_level": a.escalation_level,
         "sla_due_at": a.sla_due_at, "created_at": a.created_at, "acknowledged_at": a.acknowledged_at,
@@ -137,6 +143,8 @@ def alert_out(a: Alert, db: Session) -> dict:
         "reasons": [h["uz_text"] for h in (ra.rule_hits + ra.trend_hits) if h["zone"] != "factor"][:4] if ra else [],
         "trend_driven": bool(ra and any(is_predictive(h) for h in ra.trend_hits)),
         **summary,
+        "performed_at_polyclinic_name": ext_pc.name if ext_pc else None,
+        "external_notice_uz": "Tashqi natija kelib tushdi" if ext_pc else None,
         "history": _history(db, a),
     }
 

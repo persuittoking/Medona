@@ -17,7 +17,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.models import Alert, AuditLog, User, utcnow
+from app.models import Alert, AuditLog, Patient, Polyclinic, User, utcnow
 from app.risk.engine import ZONE_UZ
 
 log = logging.getLogger("onaradar.notify")
@@ -99,6 +99,20 @@ def notify_escalated(db: Session, alert: Alert, assignee: User | None) -> str:
 def notify_reassigned(db: Session, alert: Alert, assignee: User | None) -> str:
     return notify_user(db, assignee, alert_text(db, alert, "Ogohlantirish sizga qayta biriktirildi"), alert.id,
                        "reassigned")
+
+
+def notify_external_result(db: Session, pat: Patient, from_pc: Polyclinic, entity_id: int, subject_code: str) -> str:
+    """Notify the responsible polyclinic that an external analysis/visit arrived (de-identified)."""
+    from app.services.alerts import role_user
+
+    target = (db.get(User, pat.assigned_nurse_id) if pat.assigned_nurse_id else None) or role_user(
+        db, "doctor", pat.polyclinic_id, pat.polyclinic.district_id
+    )
+    text = (f"📥 Tashqi natija kelib tushdi\n"
+            f"Bemor kodi: {subject_code}\n"
+            f"Boshqa poliklinikada o'tkazilgan: {from_pc.name}\n"
+            f"Sintetik ma'lumot (demo)")
+    return notify_user(db, target, text, entity_id, "external_result")
 
 
 def notify_admin_count(db: Session, alert: Alert, admin: User | None) -> str:

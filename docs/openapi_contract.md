@@ -31,7 +31,12 @@ All endpoints except `/api/health` and `/api/auth/login` need `Authorization: Be
 | GET | `/api/geo/country` | admins | regions with aggregated counts (other regions: `accessible=false`, no counts) |
 | GET | `/api/geo/regions/{id}` | admins | districts with counts |
 | GET | `/api/geo/districts/{id}` | admins | polyclinics with counts + territory polygons |
-| GET | `/api/geo/polyclinics/{id}` | admins | one polyclinic: counts + territory + breadcrumb. **Never** names, codes or home points |
+| GET | `/api/geo/polyclinics/{id}` | admins | one polyclinic: counts + territory + `mahallas[]` (per-mahalla counts) + breadcrumb. **Never** names, codes or home points |
+| GET | `/api/geo/polyclinics/search?q=&subject=` | all | accent-insensitive search by polyclinic name, code, city, or mahalla name; returns **aggregates + mahalla boundaries only** |
+| POST | `/api/external/lookup` | nurse, doctor | `{pinfl}` → `{patient_code, responsible_polyclinic_id, responsible_polyclinic_code, responsible_polyclinic_name, mahalla_name, has_active_pregnancy, children[]}` (exact match via HMAC-SHA256 `pinfl_hash`, rate-limited 30/h, audit `external_lookup` / `external_lookup_miss`) |
+| POST | `/api/external/visits` | nurse, doctor | external pregnancy visit (`ExternalVisitIn`) → scored & saved under the responsible clinic with `performed_at_polyclinic_id`; audit `external_entry` with both polyclinic IDs |
+| POST | `/api/external/checks` | nurse, doctor | external infant check (`ExternalCheckIn`) → scored & saved under the responsible clinic with `performed_at_polyclinic_id`; audit `external_entry` with both polyclinic IDs |
+| GET | `/api/external/notifications` | staff | recent external visits/checks received by the responsible polyclinic (`"Tashqi natija kelib tushdi"`) |
 | GET | `/api/analytics/model` | all | `ml/artifacts/metrics.json` |
 | GET | `/api/audit` | admins | own district/region staff; filters `action`, `entity` |
 | GET | `/api/children?zone&q&status=active` | staff | children 0–12 months of this polyclinic (tenant key copied from the mother) |

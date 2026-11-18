@@ -157,6 +157,7 @@ def audit_log(action: str | None = None, entity: str | None = None, limit: int =
         stmt = stmt.where(AuditLog.entity == entity)
     rows = db.execute(stmt.order_by(AuditLog.id.desc()).limit(min(limit, 1000))).all()
     return [{"id": a.id, "created_at": a.created_at, "action": a.action, "entity": a.entity, "entity_id": a.entity_id,
+             "from_polyclinic_id": a.from_polyclinic_id, "to_polyclinic_id": a.to_polyclinic_id, "details": a.details,
              "ip": a.ip, "user": u.username if u else "tizim", "role": u.role if u else None,
              "polyclinic": pc.code if pc else None} for a, u, pc in rows]
 

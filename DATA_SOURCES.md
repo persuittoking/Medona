@@ -19,6 +19,9 @@ Built by `backend/seed/fetch_mahallas.py` (re-runnable):
 | `nukus.geojson` | Navbahor MFY | Nukus shahri | **demo chegara** | OSM street blocks (road data © OpenStreetMap contributors, ODbL) |
 | `chilonzor.geojson` | Qatortol MFY | Chilonzor tumani, Toshkent | **demo chegara** | OSM street blocks incl. service roads near Qatortol / Bunyodkor streets (road data © OpenStreetMap contributors, ODbL) |
 | `fargona.geojson` | **Maʻrifat mahallasi** | Farg'ona shahri | **real boundary** | OpenStreetMap relation 20577024 (admin_level 10), © OpenStreetMap contributors, ODbL |
+| `samarqand_registon.geojson` | Registon MFY | Samarqand shahri | **demo chegara** | OSM street blocks (adjacent partition of Samarqand road network, © OpenStreetMap contributors, ODbL) |
+| `samarqand_siyob.geojson` | Siyob MFY | Samarqand shahri | **demo chegara** | OSM street blocks (adjacent partition of Samarqand road network, © OpenStreetMap contributors, ODbL) |
+| `samarqand_bogishamol.geojson` | Bog'ishamol MFY | Samarqand shahri | **demo chegara** | OSM street blocks (adjacent partition of Samarqand road network, © OpenStreetMap contributors, ODbL) |
 
 "demo chegara" = the outline follows real streets but is **not** the official mahalla boundary, and the
 mahalla names (Navbahor MFY, Qatortol MFY) are illustrative. Raw OSM street downloads are cached in

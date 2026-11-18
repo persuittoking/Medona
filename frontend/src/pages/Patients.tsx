@@ -9,13 +9,20 @@ import { SEX_LABEL } from "../i18n/uz";
 import { useAuth } from "../lib/auth";
 import { fmtAge, fmtDate, fmtPct, fmtWeeks } from "../lib/format";
 import { showsChildren, showsPregnancies, useStaffSubjectCounts, useSubject } from "../lib/subject";
+import { usePolyclinicMap } from "./PolyclinicMap";
 
-function PregnancyList({ zone, q, trimester, overdue }: { zone: string; q: string; trimester: string; overdue: boolean }) {
+function applyMahallaParam(params: URLSearchParams, mahalla: string) {
+  if (mahalla === "all") params.set("all_mahallas", "true");
+  else if (mahalla) params.set("mahalla_id", mahalla);
+}
+
+function PregnancyList({ zone, q, trimester, overdue, mahalla }: { zone: string; q: string; trimester: string; overdue: boolean; mahalla: string }) {
   const params = new URLSearchParams();
   if (zone) params.set("zone", zone);
   if (trimester) params.set("trimester", trimester);
   if (overdue) params.set("overdue", "true");
   if (q.trim()) params.set("q", q.trim());
+  applyMahallaParam(params, mahalla);
   const list = useQuery({ queryKey: ["patients", params.toString()], queryFn: () => api<PatientRow[]>(`/api/patients?${params}`) });
   if (list.error) return <ErrorBox error={list.error} />;
   if (list.isLoading) return <Skeleton className="h-64" />;
@@ -68,10 +75,11 @@ function PregnancyList({ zone, q, trimester, overdue }: { zone: string; q: strin
   );
 }
 
-function ChildList({ zone, q, overdue }: { zone: string; q: string; overdue: boolean }) {
+function ChildList({ zone, q, overdue, mahalla }: { zone: string; q: string; overdue: boolean; mahalla: string }) {
   const params = new URLSearchParams();
   if (zone) params.set("zone", zone);
   if (q.trim()) params.set("q", q.trim());
+  applyMahallaParam(params, mahalla);
   const list = useQuery({ queryKey: ["children", params.toString()], queryFn: () => api<ChildRow[]>(`/api/children?${params}`) });
   if (list.error) return <ErrorBox error={list.error} />;
   if (list.isLoading) return <Skeleton className="h-64" />;
@@ -124,24 +132,43 @@ export default function Patients() {
   const { user } = useAuth();
   const [subject, setSubject] = useSubject();
   const counts = useStaffSubjectCounts();
+  const map = usePolyclinicMap(subject);
   const [zone, setZone] = useState("");
   const [trimester, setTrimester] = useState("");
   const [overdue, setOverdue] = useState(false);
   const [q, setQ] = useState("");
+  const [mahalla, setMahalla] = useState<string>(() => (user?.role === "nurse" && user?.mahalla_id ? String(user.mahalla_id) : "all"));
   const both = subject === "all";
+  const canEnterExternal = user?.role === "nurse" || user?.role === "doctor";
+  const mahallas = map.data?.mahallas ?? [];
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1>Bemorlar</h1>
-          <p className="mt-1 text-sm text-slate-500">{user?.polyclinic_name}</p>
+          <p className="mt-1 text-sm text-slate-500">
+            {user?.polyclinic_name}{user?.mahalla_name ? ` · ${user.mahalla_name}` : ""}
+          </p>
         </div>
-        <SubjectSwitch value={subject} onChange={setSubject} counts={counts} />
+        <div className="flex flex-wrap items-center gap-2">
+          {canEnterExternal && (
+            <Link to="/external-visit" className="btn-ghost btn-sm ring-1 ring-slate-300">
+              + Boshqa poliklinika bemori
+            </Link>
+          )}
+          <SubjectSwitch value={subject} onChange={setSubject} counts={counts} />
+        </div>
       </div>
 
-      <div className="card-tight grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="card-tight grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
         <input className="input" placeholder="Kod bo'yicha qidirish" value={q} onChange={(e) => setQ(e.target.value)} />
+        <select className="input" value={mahalla} onChange={(e) => setMahalla(e.target.value)} aria-label="Mahalla">
+          <option value="all">Barcha mahallalar</option>
+          {mahallas.map((m) => (
+            <option key={m.id} value={String(m.id)}>{m.name}</option>
+          ))}
+        </select>
         <select className="input" value={zone} onChange={(e) => setZone(e.target.value)} aria-label="Zona">
           <option value="">Barcha zonalar</option><option value="red">Qizil</option><option value="yellow">Sariq</option><option value="green">Yashil</option>
         </select>
@@ -159,13 +186,13 @@ export default function Patients() {
       {showsPregnancies(subject) && (
         <section className="space-y-2">
           {both && <h2>Homiladorlar</h2>}
-          <PregnancyList zone={zone} q={q} trimester={trimester} overdue={overdue} />
+          <PregnancyList zone={zone} q={q} trimester={trimester} overdue={overdue} mahalla={mahalla} />
         </section>
       )}
       {showsChildren(subject) && (
         <section className="space-y-2">
           {both && <h2 className="pt-2">Bolalar (0–1 yosh)</h2>}
-          <ChildList zone={zone} q={q} overdue={overdue} />
+          <ChildList zone={zone} q={q} overdue={overdue} mahalla={mahalla} />
         </section>
       )}
     </div>

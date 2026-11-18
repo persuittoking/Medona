@@ -36,7 +36,7 @@ from app.risk import thresholds as T
 from app.risk.engine import score_pregnancy
 from app.risk.infant import score_infant, wfa_ref, wfa_z
 from app.security.auth import hash_password
-from app.security.crypto import encrypt
+from app.security.crypto import encrypt, hash_pinfl
 from app.services.alerts import record_event
 from app.services.children import (
     apply_child_assessment,
@@ -48,7 +48,7 @@ from app.services.children import (
     refresh_status,
     store_child_assessment,
 )
-from app.services.geo import encrypt_home, sample_points, validate_home
+from app.services.geo import check_patient_polyclinic, encrypt_home, sample_points, validate_home
 from app.services.scoring import (
     apply_assessment,
     create_alert_if_worse,
@@ -85,32 +85,57 @@ PREG_KEYS = [
 
 
 class Tenant:
-    """Seed-time context of one polyclinic: its mahalla, staff and a pool of home points inside the polygon."""
+    """Seed-time context of one polyclinic: its mahalla(s), staff and a pool of home points inside each polygon."""
 
     def __init__(self, db, rng, pdef: dict, rdef: dict, ddef: dict, district: District, pw: str):
+        from shapely.ops import unary_union
+
         self.pdef, self.rdef, self.ddef, self.district = pdef, rdef, ddef, district
-        feat = load_boundary(pdef["mahalla_key"])
-        poly = as_shape(feat)
+        keys = pdef.get("mahalla_keys") or [pdef["mahalla_key"]]
+        feats = [load_boundary(k) for k in keys]
+        polys = [as_shape(f) for f in feats]
+        centre = unary_union(polys).centroid
         self.polyclinic = Polyclinic(code=pdef["code"], name=pdef["name"], district_id=district.id,
-                                     address=pdef["address"], lat=round(poly.centroid.y, 6), lon=round(poly.centroid.x, 6))
+                                     address=pdef["address"], lat=round(centre.y, 6), lon=round(centre.x, 6))
         db.add(self.polyclinic)
         db.flush()
-        props = feat["properties"]
-        self.mahalla = Mahalla(name=props["name"], polyclinic_id=self.polyclinic.id, boundary_geojson=feat["geometry"],
-                               boundary_source=props["source"], demo_boundary=bool(props.get("demo_boundary", True)),
-                               centroid_lat=round(poly.centroid.y, 6), centroid_lon=round(poly.centroid.x, 6))
-        db.add(self.mahalla)
+        self.mahallas: list[Mahalla] = []
+        self.nurses: list[User] = []
+        self._homes_by_m: list[list[tuple[float, float]]] = []
+        self._home_i_by_m: list[int] = []
         self.users: dict[str, User] = {}
-        for role, title in [("nurse", "Patronaj hamshirasi"), ("doctor", "Oilaviy shifokor"),
+        for i, (feat, poly) in enumerate(zip(feats, polys, strict=True)):
+            props = feat["properties"]
+            m = Mahalla(name=props["name"], polyclinic_id=self.polyclinic.id, boundary_geojson=feat["geometry"],
+                        boundary_source=props["source"], demo_boundary=bool(props.get("demo_boundary", True)),
+                        centroid_lat=round(poly.centroid.y, 6), centroid_lon=round(poly.centroid.x, 6))
+            db.add(m)
+            db.flush()
+            self.mahallas.append(m)
+            uname = "nurse" if i == 0 else f"nurse{i + 1}"
+            label = f"Patronaj hamshirasi ({m.name})" if len(feats) > 1 else f"Patronaj hamshirasi ({pdef['code']})"
+            u = User(username=uname, full_name=label, role="nurse", polyclinic_id=self.polyclinic.id,
+                     mahalla_id=m.id, district_id=district.id, region_id=district.region_id, password_hash=pw)
+            db.add(u)
+            self.nurses.append(u)
+            self.users[uname] = u
+            self._homes_by_m.append(sample_points(feat["geometry"], 350, rng))
+            self._home_i_by_m.append(0)
+        for role, title in [("doctor", "Oilaviy shifokor"),
                             ("specialist", "OvaBMU mutaxassisi"), ("department_head", "OvaBMU bo'lim mudiri")]:
             u = User(username=role, full_name=f"{title} ({pdef['code']})", role=role, polyclinic_id=self.polyclinic.id,
                      district_id=district.id, region_id=district.region_id, password_hash=pw)
             db.add(u)
             self.users[role] = u
         db.flush()
-        self._homes = sample_points(feat["geometry"], 500, rng)
-        self._home_i = 0
+        self._m_idx = 0
+        self.mahalla = self.mahallas[0]
         self._seq = 400
+
+    def use_mahalla(self, idx: int) -> None:
+        self._m_idx = idx
+        self.mahalla = self.mahallas[idx]
+        self.users["nurse"] = self.nurses[idx]
 
     def next_code(self) -> int:
         self._seq += 1
@@ -118,22 +143,26 @@ class Tenant:
 
     def next_home_distance_km(self) -> float:
         """Distance to the perinatal centre of the home point the next add_patient() will use."""
-        lat, lon = self._homes[self._home_i]
+        idx = self._m_idx
+        lat, lon = self._homes_by_m[idx][self._home_i_by_m[idx]]
         per = self.rdef["perinatal"]
         return round(haversine_km(lat, lon, per["lat"], per["lon"]), 1)
 
     def add_patient(self, db, p: dict) -> Patient:
-        lat, lon = self._homes[self._home_i]
-        self._home_i += 1
+        idx = self._m_idx
+        lat, lon = self._homes_by_m[idx][self._home_i_by_m[idx]]
+        self._home_i_by_m[idx] += 1
         validate_home(self.mahalla.boundary_geojson, lat, lon)
         per = self.rdef["perinatal"]
         pat = Patient(code=p["code"], full_name_enc=encrypt(p["full_name"]), pinfl_enc=encrypt(p["pinfl"]),
+                      pinfl_hash=hash_pinfl(p["pinfl"]),
                       phone_enc=encrypt(p["phone"]), home_enc=encrypt_home(lat, lon), birth_date=p["birth_date"],
-                      polyclinic_id=self.polyclinic.id, mahalla_id=self.mahalla.id,
+                      polyclinic_id=self.mahalla.polyclinic_id, mahalla_id=self.mahalla.id,
                       distance_to_perinatal_km=round(haversine_km(lat, lon, per["lat"], per["lon"]), 1),
-                      assigned_nurse_id=self.users["nurse"].id)
+                      assigned_nurse_id=self.nurses[idx].id)
         db.add(pat)
         db.flush()
+        check_patient_polyclinic(db, pat)
         return pat
 
 
@@ -558,22 +587,33 @@ def seed(seed_value: int = 7, active_per_mahalla: tuple[int, int] = ACTIVE_PER_M
                 if rdef["code"] == "QQR" and ddef["code"] == "NUK":
                     db.add(User(username="district.admin", full_name=f"{d.name} tibbiyot birlashmasi",
                                 role="district_admin", district_id=d.id, region_id=region.id, password_hash=pw))
+                if rdef["code"] == "SAM" and ddef["code"] == "SAM":
+                    db.add(User(username="sam.district.admin", full_name=f"{d.name} tibbiyot birlashmasi",
+                                role="district_admin", district_id=d.id, region_id=region.id, password_hash=pw))
             if rdef["code"] == "QQR":
                 db.add(User(username="region.admin", full_name=f"{rdef['name']} sog'liqni saqlash vazirligi",
+                            role="region_admin", region_id=region.id, password_hash=pw))
+            if rdef["code"] == "SAM":
+                db.add(User(username="sam.region.admin", full_name=f"{rdef['name']} sog'liqni saqlash boshqarmasi",
                             role="region_admin", region_id=region.id, password_hash=pw))
         db.flush()
 
         for t in tenants.values():
-            quotas = zone_quotas(rng, int(rng.integers(active_per_mahalla[0], active_per_mahalla[1] + 1)))
-            if t.pdef["code"] == "PL-NUK-001":
-                for z, k in DEMO_ACTIVE_ZONES.items():  # DEMO1-3 are added below and count towards the mix
-                    quotas[z] -= k
-            for z, k in TREND_DEMO_ZONES.items():  # TRND1-3 too
-                quotas[z] = max(0, quotas[z] - k)
-            _fill_register(db, rng, t, today, quotas)
-            _trend_demo_patients(db, rng, t, today)
-            for _ in range(int(rng.integers(children_per_mahalla[0], children_per_mahalla[1] + 1))):
-                _random_child(db, rng, t, today)
+            for m_idx in range(len(t.mahallas)):
+                t.use_mahalla(m_idx)
+                quotas = zone_quotas(rng, int(rng.integers(active_per_mahalla[0], active_per_mahalla[1] + 1)))
+                if m_idx == 0:
+                    if t.pdef["code"] == "PL-NUK-001":
+                        for z, k in DEMO_ACTIVE_ZONES.items():  # DEMO1-3 are added below and count towards the mix
+                            quotas[z] -= k
+                    for z, k in TREND_DEMO_ZONES.items():  # TRND1-3 too
+                        quotas[z] = max(0, quotas[z] - k)
+                _fill_register(db, rng, t, today, quotas)
+                if m_idx == 0:
+                    _trend_demo_patients(db, rng, t, today)
+                for _ in range(int(rng.integers(children_per_mahalla[0], children_per_mahalla[1] + 1))):
+                    _random_child(db, rng, t, today)
+            t.use_mahalla(0)
 
         _demo_patients(db, rng, tenants["PL-NUK-001"], today)
         db.commit()

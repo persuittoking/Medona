@@ -77,11 +77,12 @@ home points on the mahalla map. District/region admins see **aggregated counts o
 | PL-NUK-001 | nurse / doctor / specialist / department_head | Nukus shahri — Navbahor MFY (DEMO1–4 live here) |
 | PL-CHL-001 | nurse / doctor / specialist / department_head | Toshkent, Chilonzor — Qatortol MFY |
 | PL-FRG-001 | nurse / doctor / specialist / department_head | Farg'ona shahri — Maʻrifat mahallasi |
+| PL-SAM-003 | nurse / nurse2 / nurse3 / doctor / specialist / department_head | Samarqand shahri — 3 mahallas: Registon, Siyob, Bog'ishamol MFY |
 
 Every polyclinic also has 3 trend-only demo patients (`…-TRND1..3`): a clear 3-checkup rising-BP or falling-Hb
 trend while the last visit is still below every static threshold (P01/P02).
-| *(empty)* | district.admin | Nukus shahri (aggregates only) |
-| *(empty)* | region.admin | Qoraqalpog'iston (aggregates only) |
+| *(empty)* | district.admin / sam.district.admin | Nukus shahri / Samarqand shahri (aggregates only) |
+| *(empty)* | region.admin / sam.region.admin | Qoraqalpog'iston / Samarqand viloyati (aggregates only) |
 
 ## Demo story (3 min)
 1. Login map: the polyclinic's mahalla on satellite imagery. Log in **PL-NUK-001 / nurse** → mahalla map with

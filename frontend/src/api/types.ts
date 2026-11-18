@@ -11,10 +11,12 @@ export interface User {
   full_name: string;
   role: Role;
   polyclinic_id: number | null;
+  mahalla_id: number | null;
   region_id: number | null;
   district_id: number | null;
   polyclinic_code: string | null;
   polyclinic_name: string | null;
+  mahalla_name: string | null;
   district_name: string | null;
   region_name: string | null;
 }
@@ -65,6 +67,11 @@ export interface Visit {
   fundal_height_cm: number | null;
   symptoms: string[];
   notes: string | null;
+  entered_by?: number | null;
+  performed_at_polyclinic_id?: number | null;
+  performed_at_polyclinic_name?: string | null;
+  performed_at_polyclinic_code?: string | null;
+  external_badge_uz?: string | null;
 }
 
 export interface Alert {
@@ -96,6 +103,8 @@ export interface Alert {
   summary_status: "ready" | "pending" | "unavailable";
   summary_bullets: string[] | null;
   summary_source: "ai" | "template" | null;
+  performed_at_polyclinic_name?: string | null;
+  external_notice_uz?: string | null;
   history: AlertEvent[];
 }
 
@@ -132,6 +141,7 @@ export interface PatientRow {
   overdue: boolean;
   district_name: string;
   mahalla: string;
+  mahalla_id?: number | null;
 }
 
 export interface Newborn {
@@ -247,7 +257,7 @@ export interface AiSummary {
 
 export type GeoPolygon = { type: "Polygon"; coordinates: number[][][] };
 
-export interface MahallaGeo {
+export interface MahallaGeo extends Partial<Agg> {
   id: number;
   name: string;
   boundary: GeoPolygon;
@@ -266,6 +276,7 @@ export interface MapPoint {
   risk: number | null;
   lat: number;
   lon: number;
+  mahalla_id?: number;
 }
 
 export interface PolyclinicMapData {
@@ -320,8 +331,28 @@ export interface GeoPolyclinic extends Agg {
   name: string;
   lat: number;
   lon: number;
-  territory: { name: string; boundary: GeoPolygon }[];
+  territory: ({ id?: number; name: string; boundary: GeoPolygon } & Partial<Agg>)[];
+  mahallas?: ({ id: number; name: string; boundary: GeoPolygon } & Agg)[];
   breadcrumb: Crumb[];
+}
+
+export interface PolyclinicSearchMahalla extends Agg {
+  id: number;
+  name: string;
+  boundary: GeoPolygon;
+  centroid: [number, number];
+}
+
+export interface PolyclinicSearchItem extends Agg {
+  id: number;
+  code: string;
+  name: string;
+  city: string;
+  region_name: string;
+  lat: number;
+  lon: number;
+  mahalla_count: number;
+  mahallas: PolyclinicSearchMahalla[];
 }
 
 // ---------------- children 0-12 months ("Bolalar") ----------------
@@ -340,6 +371,7 @@ export interface ChildRow {
   last_check_date: string | null;
   overdue: boolean;
   mahalla: string;
+  mahalla_id?: number | null;
   main_reason: string | null;
 }
 
@@ -367,6 +399,11 @@ export interface ChildCheck {
   vaccines_given: string[] | null;
   vaccines_due_overdue: string[] | null;
   notes: string | null;
+  entered_by?: number | null;
+  performed_at_polyclinic_id?: number | null;
+  performed_at_polyclinic_name?: string | null;
+  performed_at_polyclinic_code?: string | null;
+  external_badge_uz?: string | null;
 }
 
 export interface Vaccine {
@@ -414,4 +451,44 @@ export interface ChildCheckCreated {
   assessment: Risk;
   previous_zone: Zone;
   alert: Alert | null;
+}
+
+export interface ExternalLookupOut {
+  patient_code: string;
+  responsible_polyclinic_id: number;
+  responsible_polyclinic_code: string;
+  responsible_polyclinic_name: string;
+  mahalla_name: string;
+  has_active_pregnancy: boolean;
+  children: { newborn_id: number; code: string }[];
+}
+
+export interface ExternalEntryOut {
+  id: number;
+  subject: "pregnancy" | "child";
+  patient_code: string;
+  responsible_polyclinic_id: number;
+  responsible_polyclinic_code: string;
+  responsible_polyclinic_name: string;
+  mahalla_name: string;
+  performed_at_polyclinic_id: number | null;
+  performed_at_polyclinic_name: string;
+  message_uz: string;
+}
+
+export interface ExternalNotification {
+  kind: "pregnancy" | "child";
+  id: number;
+  patient_id: number;
+  pregnancy_id: number | null;
+  newborn_id: number | null;
+  code: string;
+  mahalla: string;
+  visit_date: string;
+  created_at: string;
+  performed_at_polyclinic_id: number;
+  performed_at_polyclinic_code: string;
+  performed_at_polyclinic_name: string;
+  notice_uz: string;
+  badge_uz: string;
 }

@@ -50,8 +50,26 @@ All data is synthetic. Password for every demo user: `demo1234`. Start: `start_a
    pregnancies. Explanation text: "Bolalar uchun faqat klinik qoidalar va trendlar (ML modeli qo'llanilmaydi)".
 
 ## 6. Admin view (≈20 s)
-Log in **region.admin** → map drill-down → counts only, no names or codes. The same switch
-"Homiladorlar | Bolalar | Hammasi" changes the counts.
+Log in **region.admin** (or **sam.region.admin**) → map drill-down → counts only, no names or codes. The same switch
+"Homiladorlar | Bolalar | Hammasi" changes the counts. In Samarqand (`PL-SAM-003`) the drill-down shows all 3
+mahallas (`Registon MFY`, `Siyob MFY`, `Bog'ishamol MFY`) with their aggregate zone counts.
+
+## 7. Multi-mahalla polyclinic, map search & external analysis entry (Task 09, ≈60 s)
+1. Log in **PL-SAM-003 / nurse** (Samarqand shahar 3-son oilaviy poliklinikasi, `Registon MFY`) → **Mahalla xaritasi** shows
+   all **3 adjacent mahallas** (`Registon MFY`, `Siyob MFY`, `Bog'ishamol MFY`) with per-mahalla counts and filter chips.
+   In **Bemorlar**, the nurse sees her own mahalla (`Registon MFY`) by default and can switch the filter to
+   **"Barcha mahallalar"**.
+2. In the right-side search panel (**"Poliklinika yoki mahalla qidirish…"**), search **"Nukus"** (or `Bog'ishamol` / `Ma'rifat`,
+   accent-insensitive): clicking **Nukus (`PL-NUK-001`)** flies the map to Nukus and shows **mahalla polygons and aggregate counts
+   only** with the banner *"Boshqa poliklinika — faqat umumiy sonlar"* (no patient dots or codes). Use **"Bemor kodi bo'yicha
+   qidirish"** to centre on a patient dot in your own clinic and open the popup link to her card.
+3. Log in **PL-NUK-001 / nurse** → **Bemorlar** → **+ Boshqa poliklinika bemori** → enter the 14-digit JShShIR of a
+   Samarqand woman → the lookup shows **only** her pseudonymous code, `Samarqand shahar 3-son oilaviy poliklinikasi (PL-SAM-003)`
+   and mahalla name (no name, history, zone or address). Enter high BP (`168/112`, proteinuria `+2`, severe headache) and save →
+   *"Natija mas'ul poliklinikaga yuborildi: Samarqand shahar 3-son oilaviy poliklinikasi"*.
+4. Log in **PL-SAM-003 / specialist** → **Ogohlantirishlar**: the new RED alert arrived at Samarqand (the responsible clinic)
+   with the badge **"📥 Tashqi natija kelib tushdi (Boshqa poliklinikada o'tkazilgan: Nukus shahar 1-son oilaviy poliklinikasi)"**,
+   and the visit on the patient card carries the badge **"Boshqa poliklinikada o'tkazilgan: Nukus shahar 1-son oilaviy poliklinikasi"**.
 
 ## Reset
 Stop the backend, run `reset_demo.bat` (re-seeds the database; DEMO1 is YELLOW again, DEMO5's child GREEN again).

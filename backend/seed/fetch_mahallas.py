@@ -28,6 +28,18 @@ AREAS = {
     "nukus": {"name": "Navbahor MFY", "city": "Nukus shahri", "lat": 42.4605, "lon": 59.6105, "target_km2": 0.55},
     "chilonzor": {"name": "Qatortol MFY", "city": "Chilonzor tumani", "lat": 41.2755, "lon": 69.2045, "target_km2": 0.55},
     "fargona": {"name": "Mustaqillik MFY", "city": "Farg'ona shahri", "lat": 40.3860, "lon": 71.7860, "target_km2": 0.55},
+    "samarqand_registon": {
+        "name": "Registon MFY", "city": "Samarqand shahri", "lat": 39.6528, "lon": 66.9665,
+        "target_km2": 0.45, "group": "samarqand",
+    },
+    "samarqand_siyob": {
+        "name": "Siyob MFY", "city": "Samarqand shahri", "lat": 39.6575, "lon": 66.9665,
+        "target_km2": 0.45, "group": "samarqand",
+    },
+    "samarqand_bogishamol": {
+        "name": "Bog'ishamol MFY", "city": "Samarqand shahri", "lat": 39.6550, "lon": 66.9605,
+        "target_km2": 0.45, "group": "samarqand",
+    },
 }
 
 
@@ -84,27 +96,32 @@ def admin_boundary(a: dict) -> dict | None:
             "source": f"OpenStreetMap relation {rel['id']} (admin_level {tags.get('admin_level')}), (c) OpenStreetMap contributors, ODbL"}
 
 
-def streets(key: str, a: dict) -> dict:
+def streets(key: str, a: dict, half_m: float = 600) -> dict:
     cached = CACHE / f"{key}_streets.json"
     if cached.exists():
         return json.loads(cached.read_text(encoding="utf-8"))
     q = (f'[out:json][timeout:50];way["highway"~"^(primary|secondary|tertiary|residential|unclassified|living_street|service)$"]'
-         f'({bbox(a["lat"], a["lon"], 600)});out geom;')
+         f'({bbox(a["lat"], a["lon"], half_m)});out geom;')
     data = overpass(q)
     CACHE.mkdir(exist_ok=True)
     cached.write_text(json.dumps(data), encoding="utf-8")
     return data
 
 
-def street_boundary(key: str, a: dict) -> dict:
+def _blocks_from_streets(data: dict) -> list[Polygon]:
     lines = [LineString([(p["lon"], p["lat"]) for p in w["geometry"]])
-             for w in streets(key, a).get("elements", []) if len(w.get("geometry", [])) >= 2]
+             for w in data.get("elements", []) if len(w.get("geometry", [])) >= 2]
     if not lines:
         raise RuntimeError("no streets returned")
-    centre = Point(a["lon"], a["lat"])
     blocks = [b for b in polygonize(unary_union(lines)) if km2(b) < 0.4]  # drop huge outer faces
     if not blocks:
         raise RuntimeError("streets do not form closed blocks")
+    return blocks
+
+
+def street_boundary(key: str, a: dict) -> dict:
+    blocks = _blocks_from_streets(streets(key, a))
+    centre = Point(a["lon"], a["lat"])
     # Take every real street block within a growing radius of the centre, then close the road gaps
     # between them (buffer out/in by ~15 m) so the outline follows the outer streets.
     close = 15 / 111_320
@@ -122,6 +139,57 @@ def street_boundary(key: str, a: dict) -> dict:
             "source": "demo chegara: OSM street blocks around a real neighbourhood (road data (c) OpenStreetMap, ODbL)"}
 
 
+def group_street_boundaries(group: str, members: dict[str, dict]) -> dict[str, dict]:
+    """Partition one shared street network into adjacent, non-overlapping mahalla polygons."""
+    lat = sum(a["lat"] for a in members.values()) / len(members)
+    lon = sum(a["lon"] for a in members.values()) / len(members)
+    blocks = _blocks_from_streets(streets(group, {"lat": lat, "lon": lon}, half_m=1100))
+    group_centre = Point(lon, lat)
+    total_target = sum(a["target_km2"] for a in members.values()) * 1.15
+    pool = blocks
+    for radius_m in range(300, 1400, 25):
+        cand = [b for b in blocks if b.centroid.distance(group_centre) * 111_320 <= radius_m]
+        if sum(km2(b) for b in cand) >= total_target:
+            pool = cand
+            break
+    centres = {k: Point(a["lon"], a["lat"]) for k, a in members.items()}
+    owned: dict[str, list[Polygon]] = {k: [] for k in members}
+    for b in pool:
+        nearest = min(centres, key=lambda k: b.centroid.distance(centres[k]))
+        owned[nearest].append(b)
+    close = 24 / 111_320
+    prior = Polygon()
+    out: dict[str, dict] = {}
+    for k in members:
+        poly = unary_union(owned[k]).buffer(close).buffer(-close * 0.45)
+        if poly.geom_type == "MultiPolygon":
+            poly = max(poly.geoms, key=lambda g: g.area)
+        poly = Polygon(poly.exterior).simplify(0.00003).buffer(0)
+        if not prior.is_empty:
+            poly = poly.difference(prior)
+            if poly.geom_type == "MultiPolygon":
+                poly = max(poly.geoms, key=lambda g: g.area)
+            poly = Polygon(poly.exterior).buffer(0)
+        prior = unary_union([prior, poly]) if not prior.is_empty else poly
+        out[k] = {
+            "geometry": poly, "demo": True,
+            "source": "demo chegara: OSM street blocks around a real neighbourhood (road data (c) OpenStreetMap, ODbL)",
+        }
+    return out
+
+
+def _save_feature(key: str, a: dict, res: dict) -> None:
+    poly = res["geometry"]
+    name = res.get("name") or a["name"]
+    fc = {"type": "FeatureCollection", "features": [{
+        "type": "Feature", "geometry": mapping(poly),
+        "properties": {"key": key, "name": name, "city": a["city"], "demo_boundary": res["demo"],
+                       "source": res["source"], "area_km2": round(km2(poly), 3)},
+    }]}
+    (OUT / f"{key}.geojson").write_text(json.dumps(fc, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"{key}: {name} — {km2(poly):.2f} km², {len(poly.exterior.coords)} vertices — {res['source']}")
+
+
 def main() -> None:
     import argparse
 
@@ -129,10 +197,22 @@ def main() -> None:
     ap.add_argument("--only", nargs="*", default=list(AREAS))
     ap.add_argument("--skip-admin", action="store_true", help="skip the official-boundary check (already done)")
     args = ap.parse_args()
-    keys = args.only
+    keys = set(args.only)
     OUT.mkdir(parents=True, exist_ok=True)
+    done_groups: set[str] = set()
     for key, a in AREAS.items():
         if key not in keys:
+            continue
+        grp = a.get("group")
+        if grp:
+            if grp in done_groups:
+                continue
+            done_groups.add(grp)
+            members = {k: v for k, v in AREAS.items() if v.get("group") == grp}
+            built = group_street_boundaries(grp, members)
+            for mk, mres in built.items():
+                if mk in keys:
+                    _save_feature(mk, members[mk], mres)
             continue
         try:
             official = None if args.skip_admin else admin_boundary(a)
@@ -140,15 +220,7 @@ def main() -> None:
             print(f"{key}: admin boundary check failed ({e}); using street blocks")
             official = None
         res = official or street_boundary(key, a)
-        poly = res["geometry"]
-        name = res.get("name") or a["name"]
-        fc = {"type": "FeatureCollection", "features": [{
-            "type": "Feature", "geometry": mapping(poly),
-            "properties": {"key": key, "name": name, "city": a["city"], "demo_boundary": res["demo"],
-                           "source": res["source"], "area_km2": round(km2(poly), 3)},
-        }]}
-        (OUT / f"{key}.geojson").write_text(json.dumps(fc, ensure_ascii=False, indent=1), encoding="utf-8")
-        print(f"{key}: {name} — {km2(poly):.2f} km², {len(poly.exterior.coords)} vertices — {res['source']}")
+        _save_feature(key, a, res)
 
 
 if __name__ == "__main__":

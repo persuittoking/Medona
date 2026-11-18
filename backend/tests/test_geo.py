@@ -61,7 +61,7 @@ def test_home_point_visible_to_own_polyclinic_only(client):
 
 def test_public_territories_have_no_patient_data(client):
     terr = client.get("/api/public/territories").json()
-    assert len(terr) == 3
+    assert len(terr) == 4
     text = str(terr)
     for forbidden in ("patient", "points", "lat\": ", "red", "zone", "QQR-NUK-"):
         assert forbidden not in text

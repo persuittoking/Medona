@@ -142,12 +142,13 @@ def test_thresholds_live_in_config():
 
 def test_seeded_trend_patients_are_red_or_yellow_by_trend_only(client):
     from app.db import SessionLocal
+    from app.geo import POLYCLINICS
     from app.models import Patient
     from app.services.scoring import latest_assessment
 
     with SessionLocal() as db:
         pats = db.query(Patient).filter(Patient.code.like("%-TRND%")).all()
-        assert len(pats) == 9  # 3 per polyclinic
+        assert len(pats) == 3 * len(POLYCLINICS)  # 3 per polyclinic
         for p in pats:
             ra = latest_assessment(db, p.pregnancies[0].id)
             assert ra.zone in ("yellow", "red"), p.code

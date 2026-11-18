@@ -103,11 +103,14 @@ export function Analytics() {
 
 interface AuditRow { id: number; created_at: string; action: string; entity: string; entity_id: number | null; ip: string | null; user: string; role: string | null; polyclinic: string | null }
 const ACTION_LABEL: Record<string, string> = {
-  login: "Tizimga kirish", view_patient: "Bemor kartasini ko'rish", reveal_pii: "Shaxsiy ma'lumotni ochish",
-  create_visit: "Tashrif kiritish", view_home_points: "Uy manzillari xaritasini ko'rish", create_alert: "Ogohlantirish yaratildi", ack_alert: "Ogohlantirishni qabul qilish", resolve_alert: "Ogohlantirishni yopish",
+  login: "Tizimga kirish", view_patient: "Bemor kartasini ko'rish", view_child: "Bola kartasini ko'rish", reveal_pii: "Shaxsiy ma'lumotni ochish",
+  create_visit: "Tashrif kiritish", create_child_check: "Bola ko'rigini kiritish", external_lookup: "Tashqi JShShIR qidiruv",
+  external_lookup_miss: "Tashqi JShShIR qidiruv (topilmadi)", external_entry: "Boshqa poliklinikadan natija kiritish",
+  view_home_points: "Uy manzillari xaritasini ko'rish", create_alert: "Ogohlantirish yaratildi", ack_alert: "Ogohlantirishni qabul qilish", resolve_alert: "Ogohlantirishni yopish",
   reassign_alert: "Mutaxassisga qayta biriktirish", escalate_alert_l1: "Eskalatsiya (1-daraja)", escalate_alert_l2: "Eskalatsiya (2-daraja)",
   demo_expire_sla: "Demo: SLA muddatini tugatish", telegram_new_alert: "Telegram: yangi ogohlantirish", telegram_escalated: "Telegram: eskalatsiya",
   telegram_reassigned: "Telegram: qayta biriktirish", telegram_admin_count: "Telegram: tuman boshqaruviga (faqat soni)",
+  telegram_external_result: "Telegram: tashqi natija kelib tushdi",
 };
 
 function SlaInfo() {

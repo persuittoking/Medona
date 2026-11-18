@@ -1,16 +1,20 @@
-"""Prototype geography: 3 regions, real district names, approximate centre coordinates.
+"""Prototype geography: 4 regions, real district names, approximate centre coordinates.
 
 Coordinates are approximate district centres (good enough for a map), not survey data.
 """
 
-# The 3 demo polyclinics (tenants). Each serves one mahalla in the demo; boundary files in backend/seed/mahallas/.
+# The 4 demo polyclinics (tenants). Boundary files in backend/seed/mahallas/.
 POLYCLINICS: list[dict] = [
-    {"code": "PL-NUK-001", "region": "QQR", "district": "NUK", "mahalla_key": "nukus",
+    {"code": "PL-NUK-001", "region": "QQR", "district": "NUK", "mahalla_keys": ["nukus"],
      "name": "Nukus shahar 1-son oilaviy poliklinikasi", "address": "Nukus sh., Navbahor MFY"},
-    {"code": "PL-CHL-001", "region": "TSH", "district": "CHL", "mahalla_key": "chilonzor",
+    {"code": "PL-CHL-001", "region": "TSH", "district": "CHL", "mahalla_keys": ["chilonzor"],
      "name": "Chilonzor tumani 1-son oilaviy poliklinikasi", "address": "Toshkent sh., Chilonzor t., Qatortol MFY"},
-    {"code": "PL-FRG-001", "region": "FAR", "district": "FRG", "mahalla_key": "fargona",
+    {"code": "PL-FRG-001", "region": "FAR", "district": "FRG", "mahalla_keys": ["fargona"],
      "name": "Farg'ona shahar 1-son oilaviy poliklinikasi", "address": "Farg'ona sh., Maʻrifat mahallasi"},
+    {"code": "PL-SAM-003", "region": "SAM", "district": "SAM",
+     "mahalla_keys": ["samarqand_registon", "samarqand_siyob", "samarqand_bogishamol"],
+     "name": "Samarqand shahar 3-son oilaviy poliklinikasi",
+     "address": "Samarqand sh., Registon, Siyob va Bog'ishamol MFY"},
 ]
 
 REGIONS: list[dict] = [
@@ -52,6 +56,19 @@ REGIONS: list[dict] = [
             {"code": "QOQ", "name": "Qo'qon shahri", "lat": 40.528, "lon": 70.943},
             {"code": "QUV", "name": "Quva tumani", "lat": 40.522, "lon": 72.070},
             {"code": "RIS", "name": "Rishton tumani", "lat": 40.357, "lon": 71.284},
+        ],
+    },
+    {
+        "code": "SAM",
+        "name": "Samarqand viloyati",
+        "lat": 39.654, "lon": 66.960,
+        "perinatal": {"name": "Samarqand viloyat perinatal markazi", "lat": 39.658, "lon": 66.948},
+        "hb_shift": -2.0,
+        "districts": [
+            {"code": "SAM", "name": "Samarqand shahri", "lat": 39.6542, "lon": 66.9597},
+            {"code": "URG", "name": "Urgut tumani", "lat": 39.402, "lon": 67.243},
+            {"code": "KAT", "name": "Kattaqo'rg'on shahri", "lat": 39.898, "lon": 66.256},
+            {"code": "PAS", "name": "Pastdarg'om tumani", "lat": 39.715, "lon": 66.664},
         ],
     },
 ]

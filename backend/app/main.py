@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import alerts, auth, children, dashboard, geo, llm, patients, visits
 from app.config import get_settings
-from app.db import Base, engine, ensure_columns
+from app.db import Base, backfill_pinfl_hashes, engine, ensure_columns
 from app.risk.ml import load_model
 from app.scheduler import schedule_prewarm, start_scheduler
 
@@ -20,6 +20,7 @@ async def lifespan(app_: FastAPI):
     added = ensure_columns(engine)  # older demo DB: add new nullable columns, never drop anything
     if added:
         log.warning("schema upgraded (added columns): %s", ", ".join(added))
+    backfill_pinfl_hashes(engine)
     load_model()  # warm the model + SHAP explainer
     app_.state.scheduler = start_scheduler()  # SLA escalation every 30 s
     if get_settings().llm_enabled and get_settings().llm_prewarm:

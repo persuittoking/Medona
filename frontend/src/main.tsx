@@ -11,6 +11,7 @@ import { ToastProvider } from "./lib/toast";
 import Alerts from "./pages/Alerts";
 import ChildCard from "./pages/ChildCard";
 import Dashboard from "./pages/Dashboard";
+import ExternalVisit from "./pages/ExternalVisit";
 import GeoDrilldown from "./pages/GeoDrilldown";
 import PolyclinicMap from "./pages/PolyclinicMap";
 import Login from "./pages/Login";
@@ -51,6 +52,7 @@ createRoot(document.getElementById("root")!).render(
                   <Route path="/patients" element={<Patients />} />
                   <Route path="/patients/:id" element={<PatientCard />} />
                   <Route path="/visits/new" element={<NewVisit />} />
+                  <Route path="/external-visit" element={<ExternalVisit />} />
                   <Route path="/children/:id" element={<ChildCard />} />
                   <Route path="/children/:id/checks/new" element={<NewChildCheck />} />
                   <Route path="/alerts" element={<Alerts />} />

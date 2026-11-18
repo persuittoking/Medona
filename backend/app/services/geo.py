@@ -52,3 +52,33 @@ def encrypt_home(lat: float, lon: float) -> str:
 def decrypt_home(token: str) -> tuple[float, float]:
     lat, lon = decrypt(token).split(",")
     return float(lat), float(lon)
+
+
+def check_patient_polyclinic(db, patient) -> None:
+    """Service check: Patient.polyclinic_id must always equal the polyclinic of Patient.mahalla_id."""
+    from app.models import Mahalla
+
+    m = patient.mahalla if patient.mahalla is not None and patient.mahalla.id == patient.mahalla_id else None
+    if m is None and patient.mahalla_id is not None:
+        m = db.get(Mahalla, patient.mahalla_id)
+    if m is None:
+        raise ValueError("Mahalla topilmadi")
+    if patient.polyclinic_id != m.polyclinic_id:
+        raise ValueError("Bemor poliklinikasi mahalla poliklinikasiga mos emas")
+
+
+def assign_patient_mahalla(db, patient, mahalla) -> None:
+    """Set or move a patient's mahalla; responsibility (polyclinic_id) always follows the mahalla."""
+    from app.models import Mahalla
+
+    m = db.get(Mahalla, mahalla) if isinstance(mahalla, int) else mahalla
+    if m is None:
+        raise ValueError("Mahalla topilmadi")
+    patient.mahalla = m
+    patient.mahalla_id = m.id
+    patient.polyclinic_id = m.polyclinic_id
+    for pr in patient.pregnancies:
+        for nb in pr.newborns:
+            nb.mahalla_id = m.id
+            nb.polyclinic_id = m.polyclinic_id
+    check_patient_polyclinic(db, patient)
