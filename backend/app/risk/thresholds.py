@@ -64,6 +64,19 @@ TREND_FUNDAL_LAG_CM = 3
 TREND_FUNDAL_MIN_WEEKS = 24
 TREND_ML_RISE = 0.15
 
+# --- Predictive trend rules P01-P05 (last PRED_MIN_VISITS visits of the same pregnancy) ---
+# Slopes are per gestational WEEK (value change / weeks between visits), so uneven visit spacing is handled.
+PRED_MIN_VISITS = 3            # 3 visits = 2 intervals: "rising at every step" needs two steps
+PRED_HORIZON_WEEKS = 2.0       # linear projection horizon; ~ the usual 2-week 3rd-trimester visit interval
+PRED_MIN_INTERVAL_WEEKS = 0.5  # gaps shorter than half a week give unstable per-week slopes -> rule skipped
+PRED_BP_MIN_WEEKS = 20.0       # gestational hypertension is defined from 20 weeks (ACOG/ISSHP)
+PRED_BP_RED_SYS = 130          # "high-normal" BP band 130-139 / 85-89 (ESC/ESH 2018): P01 -> RED from here
+PRED_BP_RED_DIA = 85
+PRED_HB_TARGET = HB_MODERATE   # P02: projected below the yellow anaemia threshold (Y06, WHO moderate < 100 g/L)
+PRED_WEIGHT_GAIN_KG_PER_WEEK = TREND_WEIGHT_GAIN_KG_PER_WEEK  # P03: > 1 kg/week at BOTH steps (oedema sign)
+PRED_FUNDAL_MIN_LAG_CM = 2.0   # P04: lag must grow at each step AND reach 2 cm (SFH tolerance +/-2 cm, FIGO/NICE)
+PRED_ML_RISE_TOTAL = TREND_ML_RISE  # P05: ML probability rising at each step, total rise >= this
+
 # --- Newborn (WHO IMCI young infant) ---
 NB_RESP_RATE_FAST = 60
 NB_TEMP_HIGH = 37.5

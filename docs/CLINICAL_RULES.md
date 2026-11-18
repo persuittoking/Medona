@@ -65,6 +65,28 @@ Note (no zone change): hemoglobin 100–109 g/L → "Yengil anemiya — kuzatib 
 | T04 | fundal height ≥3 cm below gestational weeks after 24 weeks (FGR suspicion) |
 | T05 | ML probability rose by ≥0.15 since the previous assessment |
 
+### C2. Predictive trend rules P01–P05 (last 3 visits of the same pregnancy)
+
+Goal: flag a value moving **steadily** in a dangerous direction before any single value crosses a static
+threshold. Slopes are per gestational week (value change ÷ weeks between visits), so uneven visit spacing is
+handled; the projection is linear, `PRED_HORIZON_WEEKS` (2) ahead. Steps shorter than 0.5 week → rule skipped.
+With fewer than 3 visits only T01–T05 run. A P-rule replaces the T-rule of the same signal
+(P01>T02, P02>T01, P03>T03, P04>T04, P05>T05) so one change is never counted twice. Each hit carries
+`kind: "trend"`, the 3 values, gestational weeks and dates (shown as a sparkline in the UI).
+
+| Code | Rule | Zone |
+|---|---|---|
+| P01 | systolic or diastolic rising at every step (from 20 weeks) AND projected ≥140 / ≥90 | YELLOW; RED if already ≥130 systolic or ≥85 diastolic now |
+| P02 | hemoglobin falling at every step AND projected <100 g/L | YELLOW |
+| P03 | weight gain >1.0 kg/week at BOTH steps (from 20 weeks) — oedema / pre-eclampsia sign | YELLOW |
+| P04 | fundal-height lag behind gestational weeks growing at each step and ≥2 cm now (from 24 weeks) | YELLOW |
+| P05 | ML probability rising at each step, total rise ≥0.15 | YELLOW |
+
+Combination: 2+ trend hits, any red trend hit, or **a P-hit together with a Tier A clinical yellow rule**
+(Y16 factor combinations do not count) → **RED**. Example text: "Sistolik bosim 3 ko'rikda ketma-ket
+oshmoqda: 118 → 126 → 134; shu sur'atda 2 haftada 140 dan oshishi mumkin". Thresholds and their rationale:
+`thresholds.py` (`PRED_*`).
+
 ## D. Newborn (WHO IMCI young-infant danger signs)
 
 | Code | Zone | Rule |

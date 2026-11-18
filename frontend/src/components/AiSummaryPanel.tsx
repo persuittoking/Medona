@@ -56,6 +56,12 @@ export function AiSummaryPanel({ pregnancyId }: { pregnancyId: number }) {
         </div>
       ) : (
         <div className="space-y-3 text-sm">
+          {s.doctor_bullets_uz && s.doctor_bullets_uz.length > 0 && (
+            <div className="rounded-lg bg-slate-50 p-2.5 ring-1 ring-slate-200">
+              <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Mutaxassis uchun qisqacha (3 band)</h4>
+              <ol className="list-decimal space-y-0.5 pl-5">{s.doctor_bullets_uz.map((b, i) => <li key={i}>{b}</li>)}</ol>
+            </div>
+          )}
           <p className="leading-relaxed">{s.summary_uz}</p>
           {s.key_concerns.length > 0 && (
             <div>

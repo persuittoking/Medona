@@ -13,11 +13,10 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.patients import risk_out
 from app.db import SessionLocal
-from app.llm.summary import build_llm_input, generate_summary
-from app.models import LlmSummaryCache, Patient, Pregnancy, RiskAssessment, utcnow
-from app.services.scoring import preg_dict, visit_dict
+from app.llm.summary import SUMMARY_VERSION, build_llm_input, generate_summary
+from app.models import LlmSummaryCache, Patient, Pregnancy, RiskAssessment, Visit, utcnow
+from app.services.scoring import preg_dict, risk_out, visit_dict
 
 log = logging.getLogger("onaradar.ai_summary")
 
@@ -46,17 +45,31 @@ def _release(ra_id: int) -> None:
         _in_flight.discard(ra_id)
 
 
-def get_cached(db: Session, ra_id: int) -> LlmSummaryCache | None:
+def _cache_row(db: Session, ra_id: int) -> LlmSummaryCache | None:
     return db.scalars(select(LlmSummaryCache).where(LlmSummaryCache.risk_assessment_id == ra_id)).first()
+
+
+def get_cached(db: Session, ra_id: int) -> LlmSummaryCache | None:
+    """The cached summary of this assessment, or None if missing or of an older SUMMARY_VERSION (-> regenerate)."""
+    row = _cache_row(db, ra_id)
+    if row is None or (row.payload or {}).get("version") != SUMMARY_VERSION:
+        return None
+    return row
+
+
+def _visits_until(db: Session, preg: Pregnancy, ra: RiskAssessment) -> list[dict]:
+    """The visits the assessment was based on (an older alert must not see later visits)."""
+    visit = db.get(Visit, ra.visit_id) if ra.visit_id else None
+    return [visit_dict(v) for v in preg.visits if visit is None or v.visit_date <= visit.visit_date]
 
 
 def build_and_store(db: Session, ra: RiskAssessment) -> LlmSummaryCache:
     """Generate (Gemini -> fallbacks -> template) and upsert the cache row for this assessment."""
     preg = db.get(Pregnancy, ra.pregnancy_id)
     payload = build_llm_input(preg.patient.code, preg.patient.birth_date, preg_dict(preg),
-                              [visit_dict(v) for v in preg.visits], risk_out(ra))
+                              _visits_until(db, preg, ra), risk_out(ra))
     result, tin, tout = generate_summary(payload)
-    row = get_cached(db, ra.id)
+    row = _cache_row(db, ra.id)
     if row is None:
         row = LlmSummaryCache(risk_assessment_id=ra.id, source=result["source"], payload=result)
         db.add(row)
@@ -66,8 +79,21 @@ def build_and_store(db: Session, ra: RiskAssessment) -> LlmSummaryCache:
         db.commit()
     except IntegrityError:  # another worker stored it first: keep theirs
         db.rollback()
-        row = get_cached(db, ra.id)
+        row = _cache_row(db, ra.id)
     return row
+
+
+def alert_summary(db: Session, ra_id: int) -> dict:
+    """The 3 doctor bullets for an alert, from the cached summary of its risk assessment.
+
+    {"summary_status": "ready", "summary_bullets": [...], "summary_source": "ai"|"template"} or
+    {"summary_status": "pending", "summary_bullets": None, "summary_source": None} while not generated yet.
+    """
+    row = get_cached(db, ra_id)
+    if row is None:
+        return {"summary_status": "pending", "summary_bullets": None, "summary_source": None}
+    return {"summary_status": "ready", "summary_bullets": row.payload.get("doctor_bullets_uz"),
+            "summary_source": row.source}
 
 
 def generate_cached(ra_id: int, force: bool = False) -> None:

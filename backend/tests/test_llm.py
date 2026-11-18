@@ -51,7 +51,7 @@ def test_catalog_validation_drops_invented_codes():
 def test_finalize_drops_invented_actions_and_untied_concerns():
     out = S.LlmOutput(summary_uz="Holat og'ir.", recommended_action_codes=["A01", "Z42"],
                       key_concerns=[S.Concern(code="R02", text_uz="ok"), S.Concern(code="R99", text_uz="invented")],
-                      questions_to_ask_patient_uz=["Bosh og'riyaptimi?"])
+                      questions_to_ask_patient_uz=["Bosh og'riyaptimi?"], doctor_bullets_uz=BULLETS)
     res = S._finalize(out, payload(), "ai", "m")
     assert [a["code"] for a in res["recommended_actions"]] == ["A01"]
     assert [c["code"] for c in res["key_concerns"]] == ["R02"]
@@ -197,8 +197,11 @@ def _fake_client(monkeypatch, responses, **settings_kw):
     return models
 
 
+BULLETS = ["QIZIL zona: preeklampsiya shubhasi (R02)", "AB 136/88 (29 hf) → 152/98 (31 hf), oqsil +2",
+           "Keyingi qadam: perinatal markazga yo'llash"]
 GOOD = json.dumps({"summary_uz": "Preeklampsiya xavf belgisi.", "key_concerns": [{"code": "R02", "text_uz": "AB"}],
-                   "recommended_action_codes": ["A01", "X9"], "questions_to_ask_patient_uz": ["Bosh og'riyaptimi?"]})
+                   "recommended_action_codes": ["A01", "X9"], "questions_to_ask_patient_uz": ["Bosh og'riyaptimi?"],
+                   "doctor_bullets_uz": BULLETS})
 
 
 def test_gemini_structured_success(monkeypatch):

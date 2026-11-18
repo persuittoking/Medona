@@ -3,7 +3,9 @@ import { useState } from "react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "../api/client";
 import { Empty, ErrorBox, Skeleton, SyntheticBadge } from "../components/ui";
-import { DISCLAIMER } from "../i18n/uz";
+import { isAdmin, type SlaSettings } from "../api/types";
+import { DISCLAIMER, ROLE_LABEL } from "../i18n/uz";
+import { useAuth } from "../lib/auth";
 import { fmtDateTime, fmtPct } from "../lib/format";
 
 interface Conf { sensitivity: number; specificity: number; precision: number; flag_rate: number; confusion: { tp: number; fp: number; tn: number; fn: number } }
@@ -103,7 +105,32 @@ interface AuditRow { id: number; created_at: string; action: string; entity: str
 const ACTION_LABEL: Record<string, string> = {
   login: "Tizimga kirish", view_patient: "Bemor kartasini ko'rish", reveal_pii: "Shaxsiy ma'lumotni ochish",
   create_visit: "Tashrif kiritish", view_home_points: "Uy manzillari xaritasini ko'rish", create_alert: "Ogohlantirish yaratildi", ack_alert: "Ogohlantirishni qabul qilish", resolve_alert: "Ogohlantirishni yopish",
+  reassign_alert: "Mutaxassisga qayta biriktirish", escalate_alert_l1: "Eskalatsiya (1-daraja)", escalate_alert_l2: "Eskalatsiya (2-daraja)",
+  demo_expire_sla: "Demo: SLA muddatini tugatish", telegram_new_alert: "Telegram: yangi ogohlantirish", telegram_escalated: "Telegram: eskalatsiya",
+  telegram_reassigned: "Telegram: qayta biriktirish", telegram_admin_count: "Telegram: tuman boshqaruviga (faqat soni)",
 };
+
+function SlaInfo() {
+  const { user } = useAuth();
+  const allowed = user?.role === "department_head" || isAdmin(user?.role);
+  const q = useQuery({ queryKey: ["sla"], queryFn: () => api<SlaSettings>("/api/settings/sla"), enabled: allowed });
+  if (!allowed || !q.data) return null;
+  const s = q.data;
+  return (
+    <div className="card space-y-2 text-sm">
+      <h2 className="font-semibold">Javob muddatlari (SLA) — faqat ko'rish uchun</h2>
+      <ul className="space-y-1 text-slate-700">
+        <li>Qizil ogohlantirish: <b>{s.sla_red_minutes} daqiqa</b> (SLA_RED_MINUTES)</li>
+        {s.demo_mode && <li>Demo rejimida hozir amal qiladi: <b>{s.effective_sla_red_minutes} daqiqa</b> (DEMO_SLA_RED_MINUTES)</li>}
+        <li>Sariq ogohlantirish: <b>{s.sla_yellow_hours} soat</b> (SLA_YELLOW_HOURS)</li>
+      </ul>
+      <p className="text-slate-600">
+        Qizil: {s.chain.red.map((r) => ROLE_LABEL[r]).join(" → ")}. Sariq: {s.chain.yellow.map((r) => ROLE_LABEL[r]).join(" → ")}.
+        Tuman boshqaruviga faqat ogohlantirishlar soni yuboriladi, bemor ma'lumotlari yuborilmaydi.
+      </p>
+    </div>
+  );
+}
 
 export function Audit() {
   const [action, setAction] = useState("");
@@ -146,6 +173,7 @@ export function About() {
         <p className="rounded-lg bg-slate-50 p-3 text-slate-700"><b>Gemini API haqida:</b> Google shartlariga ko'ra, bepul (unpaid) tarifda yuborilgan so'rovlar va javoblar Google mahsulotlarini yaxshilash uchun ishlatilishi va inson tomonidan ko'rib chiqilishi mumkin. Shu sababli haqiqiy bemor ma'lumotlari bilan faqat pullik (paid) Gemini API tarifidan foydalanish kerak. Kalit bo'lmasa yoki xizmat ishlamasa, AI xulosa o'rniga shablon xulosa ko'rsatiladi.</p>
         <p><b>Ma'lumotlar:</b> demo versiyadagi barcha bemorlar va ko'rsatkichlar sintetik (sun'iy yaratilgan). Model haqiqiy DMED ma'lumotlarida qayta o'qitilishi va klinik tasdiqlanishi kerak.</p>
       </div>
+      <SlaInfo />
     </div>
   );
 }

@@ -3,16 +3,17 @@ from datetime import date
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 
 from app.api.deps import audit
-from app.api.patients import risk_out
 from app.api.tenancy import Tenant, staff
 from app.models import Visit
 from app.risk.features import gest_weeks
 from app.schemas import RiskOut, VisitCreatedOut, VisitIn
 from app.services.ai_summary import generate_cached
 from app.services.alerts import alert_out
+from app.services.notify import notify_new_alert_job
 from app.services.scoring import (
     apply_assessment,
     create_alert_if_worse,
+    risk_out,
     score_new_visit,
     store_assessment,
 )
@@ -58,5 +59,7 @@ def create_visit(body: VisitIn, request: Request, background: BackgroundTasks,
     db.commit()
     db.refresh(visit)
     background.add_task(generate_cached, ra.id)  # AI summary is ready before the specialist opens the card
+    if alert is not None:  # runs after the summary task, so the Telegram message carries the 3 bullets
+        background.add_task(notify_new_alert_job, alert.id)
     return {"visit": visit, "assessment": risk_out(ra), "previous_zone": old_zone,
             "alert": alert_out(alert, db) if alert else None}

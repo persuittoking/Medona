@@ -8,6 +8,7 @@ export const ROLE_LABEL: Record<Role, string> = {
   nurse: "Patronaj hamshirasi",
   doctor: "Oilaviy shifokor",
   specialist: "OvaBMU mutaxassisi",
+  department_head: "Bo'lim mudiri (OvaBMU)",
   district_admin: "Tuman tibbiyot birlashmasi",
   region_admin: "Viloyat sog'liqni saqlash boshqarmasi",
 };
@@ -36,6 +37,17 @@ export const ALERT_STATUS_LABEL: Record<string, string> = {
   resolved: "Yopilgan",
 };
 
+export const ALERT_EVENT_LABEL: Record<string, string> = {
+  created: "Ogohlantirish yaratildi",
+  escalated: "Eskalatsiya: yuqori darajaga yuborildi",
+  reassigned: "Qayta biriktirildi",
+  acknowledged: "Qabul qilindi",
+  resolved: "Yopildi",
+  admin_notified: "Tuman boshqaruviga xabar berildi (faqat soni)",
+};
+
+export const FINAL_DECISION = "Yakuniy qaror shifokorga tegishli";
+
 export const DISCLAIMER =
   "Bu tizim qaror qabul qilishda yordam beradi, tashxis qo'ymaydi. Yakuniy qarorni shifokor qabul qiladi.";
 
@@ -43,6 +55,7 @@ export const DEMO_USERS: { polyclinic: string; username: string; role: Role; lab
   { polyclinic: "PL-NUK-001", username: "nurse", role: "nurse", label: "Hamshira" },
   { polyclinic: "PL-NUK-001", username: "doctor", role: "doctor", label: "Oilaviy shifokor" },
   { polyclinic: "PL-NUK-001", username: "specialist", role: "specialist", label: "OvaBMU mutaxassisi" },
+  { polyclinic: "PL-NUK-001", username: "department_head", role: "department_head", label: "Bo'lim mudiri (OvaBMU)" },
   { polyclinic: "PL-CHL-001", username: "nurse", role: "nurse", label: "Hamshira (Chilonzor)" },
   { polyclinic: "", username: "district.admin", role: "district_admin", label: "Tuman admini" },
   { polyclinic: "", username: "region.admin", role: "region_admin", label: "Viloyat admini" },

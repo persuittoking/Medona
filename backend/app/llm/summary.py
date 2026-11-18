@@ -10,20 +10,25 @@ import logging
 import time
 from datetime import UTC, date, datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.config import get_settings
 from app.llm.actions import ACTIONS, RULE_ACTIONS, validate_codes
+from app.llm.safety import clip, validate_bullets
 from app.risk.engine import ZONE_UZ
 from app.risk.features import age_years, gest_weeks
 
 log = logging.getLogger("onaradar.llm")
 
 DISCLAIMER_UZ = "Bu tavsiya qaror qabul qilishda yordam uchun. Yakuniy qarorni shifokor qabul qiladi."
+# Bump when the summary format changes: cached summaries of an older version are regenerated.
+# v2 (task 07): doctor_bullets_uz + predictive trend series in the payload.
+SUMMARY_VERSION = 2
 
 # Only these keys may ever appear in the LLM input (allow-list, not a deny-list).
 VISIT_KEYS = ["gestational_weeks", "systolic", "diastolic", "proteinuria", "hemoglobin_g_l",
               "fasting_glucose_mmol", "weight_kg", "temperature_c", "fetal_heart_rate", "fundal_height_cm", "symptoms"]
+TREND_SERIES_KEYS = ("param", "values", "weeks", "direction", "unit", "projected")
 HISTORY_FLAGS = ["previous_cs", "hist_stillbirth", "hist_preterm", "hist_preeclampsia", "hist_pph", "diabetes",
                  "chronic_htn", "heart", "kidney", "thyroid", "epilepsy", "multiple_pregnancy", "rh_negative"]
 
@@ -41,6 +46,11 @@ Qoidalar:
 - recommended_action_codes: FAQAT quyidagi katalogdagi kodlarni tanlang (3-5 ta, eng muhimi birinchi). \
 Katalogda yo'q harakatni taklif qilmang.
 - questions_to_ask_patient_uz: bemordan so'rash uchun 2-4 qisqa savol.
+- doctor_bullets_uz: OvaBMU mutaxassisi uchun AYNAN 3 ta qisqa band (har biri 160 belgidan oshmasin):
+  1) nega bemor hozir belgilandi — zona va asosiy qoida yoki dinamika;
+  2) asosiy ko'rsatkichlar va ularning dinamikasi, homiladorlik haftasi bilan (masalan "AB 116/72 (25 hf) → 127/84 (29 hf)");
+  3) keyingi qadam — FAQAT katalogdagi harakat (recommended_action_codes dagi birinchisi).
+  Bandlarda ism, telefon, JShShIR, manzil bo'lmasin; "tashxis" so'zini ishlatmang.
 - Berilmagan ma'lumotni o'ylab topmang.
 
 Harakatlar katalogi:
@@ -58,6 +68,13 @@ class LlmOutput(BaseModel):
     key_concerns: list[Concern] = Field(default_factory=list)
     recommended_action_codes: list[str] = Field(default_factory=list)
     questions_to_ask_patient_uz: list[str] = Field(default_factory=list)
+    doctor_bullets_uz: list[str] = Field(description="Exactly 3 short bullets (<= 160 chars) for the specialist")
+
+    @field_validator("doctor_bullets_uz")
+    @classmethod
+    def _check_bullets(cls, v: list[str]) -> list[str]:
+        """Wrong count / too long / PII / diagnosis words -> ValidationError -> next attempt or template."""
+        return validate_bullets(v)
 
 
 def build_llm_input(patient_code: str, birth_date: date, preg: dict, visits: list[dict], assessment: dict,
@@ -84,7 +101,10 @@ def build_llm_input(patient_code: str, birth_date: date, preg: dict, visits: lis
         "zone": assessment["zone"],
         "ml_probability": assessment.get("ml_probability"),
         "rule_hits": [{"code": h["code"], "zone": h["zone"], "text": h["uz_text"]} for h in assessment.get("rule_hits", [])],
-        "trend_hits": [{"code": h["code"], "text": h["uz_text"]} for h in assessment.get("trend_hits", [])],
+        # trend hits with the series they used (values + gestational weeks, never calendar dates)
+        "trend_hits": [{"code": h["code"], "zone": h.get("zone", "yellow"), "text": h["uz_text"],
+                        **{k: h[k] for k in TREND_SERIES_KEYS if h.get(k) is not None}}
+                       for h in assessment.get("trend_hits", [])],
         "shap_top": [{"feature": s["feature"], "label": s["uz_label"], "direction": s["direction"]}
                      for s in assessment.get("shap_top", [])],
     }
@@ -94,14 +114,66 @@ def _finalize(out: LlmOutput, payload: dict, source: str, model: str | None) -> 
     allowed = {h["code"] for h in payload["rule_hits"] + payload["trend_hits"]} | {s["feature"] for s in payload["shap_top"]}
     concerns = [c.model_dump() for c in out.key_concerns if c.code in allowed][:6]
     codes = validate_codes(out.recommended_action_codes)[:6]
+    bullets = list(out.doctor_bullets_uz)
+    if codes:  # bullet 3 is pinned to the action catalog: the AI can never invent a next step
+        bullets[2] = next_step_bullet(codes)
     return {
-        "source": source, "model": model,
+        "version": SUMMARY_VERSION, "source": source, "model": model,
+        "doctor_bullets_uz": bullets,
         "summary_uz": out.summary_uz.strip(),
         "key_concerns": concerns,
         "recommended_actions": [{"code": c, "text_uz": ACTIONS[c]} for c in codes],
         "questions_to_ask_patient_uz": [q.strip() for q in out.questions_to_ask_patient_uz if q.strip()][:4],
         "disclaimer_uz": DISCLAIMER_UZ,
     }
+
+
+PARAM_LABEL = {"systolic": "Sistolik AB", "diastolic": "Diastolik AB", "hemoglobin_g_l": "Hb",
+               "weight_kg": "Vazn", "fundal_lag_cm": "BTB farqi", "ml_probability": "Model xavfi"}
+
+
+def next_step_bullet(codes: list[str]) -> str:
+    return clip("Keyingi qadam: " + "; ".join(ACTIONS[c] for c in codes[:2]))
+
+
+def _series_text(h: dict) -> str:
+    unit = h.get("unit", "")
+    pts = " → ".join(f"{v:g} ({w:g} hf)" for v, w in zip(h["values"], h["weeks"], strict=False))
+    return f"{PARAM_LABEL.get(h.get('param'), h['code'])}: {pts} {unit}".strip()
+
+
+def _numbers_bullet(payload: dict) -> str:
+    """Bullet 2: the key numbers and their trend, dated by gestational week."""
+    series = [h for h in payload["trend_hits"] if h.get("values")]
+    if series:
+        return clip("; ".join(_series_text(h) for h in series[:2]))
+    vis = payload["last_visits"]
+    parts = []
+    bp = [f"{v['systolic']}/{v['diastolic']}" for v in vis if v.get("systolic") is not None]
+    if bp:
+        parts.append("AB " + " → ".join(bp))
+    hb = [f"{v['hemoglobin_g_l']:g}" for v in vis if v.get("hemoglobin_g_l") is not None]
+    if hb:
+        parts.append("Hb " + " → ".join(hb) + " g/L")
+    prot = vis[-1].get("proteinuria") if vis else None
+    if prot and prot != "neg":
+        parts.append(f"oqsil {prot}")
+    weeks = [v["gestational_weeks"] for v in vis if v.get("gestational_weeks") is not None]
+    span = f" ({weeks[0]:g}–{weeks[-1]:g} hafta)" if len(weeks) > 1 else (f" ({weeks[0]:g} hafta)" if weeks else "")
+    return clip(("; ".join(parts) or "Oxirgi ko'rik ko'rsatkichlari me'yorda") + span)
+
+
+def _template_bullets(payload: dict, hits: list[dict], codes: list[str]) -> list[str]:
+    zone = payload["zone"]
+    active = [h for h in hits if h.get("zone") != "factor"]
+    main = next((h for h in active if h.get("zone") == "red"), active[0] if active else None)
+    if main is not None:
+        why = f"{ZONE_UZ[zone]} zona: {main['text']}"
+    elif zone != "green" and payload.get("ml_probability") is not None:
+        why = f"{ZONE_UZ[zone]} zona: model bo'yicha xavf ehtimoli {payload['ml_probability']:.0%}"
+    else:
+        why = f"{ZONE_UZ[zone]} zona: xavf belgilari aniqlanmadi"
+    return [clip(why), _numbers_bullet(payload), next_step_bullet(codes)]
 
 
 def template_summary(payload: dict) -> dict:
@@ -126,20 +198,23 @@ def template_summary(payload: dict) -> dict:
     if not codes:
         codes = ["A16", "A11"] if zone == "green" else ["A10", "A07"]
     questions = ["Bosh og'rig'i, ko'z oldi qorong'ilashishi yoki shish bormi?", "Homila harakatini qanday sezyapsiz?"]
-    if any(h["code"] in ("R03", "Y06", "T01") for h in hits):
+    if any(h["code"] in ("R03", "Y06", "T01", "P02") for h in hits):
         questions.append("Temir preparatlarini muntazam qabul qilyapsizmi?")
     if any(h["code"] in ("Y13",) for h in hits):
         questions.append("Tashrifga kelishingizga nima xalaqit berdi?")
+    codes = validate_codes(codes)
     out = LlmOutput(summary_uz=" ".join(s),
                     key_concerns=[Concern(code=h["code"], text_uz=h["text"]) for h in hits[:5]],
-                    recommended_action_codes=codes, questions_to_ask_patient_uz=questions)
+                    recommended_action_codes=codes, questions_to_ask_patient_uz=questions,
+                    doctor_bullets_uz=_template_bullets(payload, hits, codes))
     return _finalize(out, payload, "template", None)
 
 
 JSON_ONLY_HINT = """
 Javobni FAQAT bitta JSON obyekt sifatida qaytaring (markdown, ``` belgilari va izohsiz), quyidagi sxema bo'yicha:
 {"summary_uz": "...", "key_concerns": [{"code": "...", "text_uz": "..."}],
- "recommended_action_codes": ["A01"], "questions_to_ask_patient_uz": ["..."]}
+ "recommended_action_codes": ["A01"], "questions_to_ask_patient_uz": ["..."],
+ "doctor_bullets_uz": ["...", "...", "..."]}
 """
 
 

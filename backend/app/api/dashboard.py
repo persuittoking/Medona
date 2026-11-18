@@ -8,9 +8,10 @@ from sqlalchemy import select
 
 from app.api.deps import current_user, require_admin
 from app.api.tenancy import Tenant, staff
-from app.config import BACKEND_DIR
+from app.config import BACKEND_DIR, get_settings
 from app.db import get_db
 from app.models import (
+    ADMIN_ROLES,
     Alert,
     AuditLog,
     Patient,
@@ -22,6 +23,7 @@ from app.models import (
 )
 from app.risk.features import gest_weeks
 from app.security.crypto import decrypt, mask_name
+from app.services.alerts import ESCALATION_CHAIN
 
 router = APIRouter(prefix="/api", tags=["dashboard"])
 
@@ -114,3 +116,14 @@ def audit_log(action: str | None = None, entity: str | None = None, limit: int =
     return [{"id": a.id, "created_at": a.created_at, "action": a.action, "entity": a.entity, "entity_id": a.entity_id,
              "ip": a.ip, "user": u.username if u else "tizim", "role": u.role if u else None,
              "polyclinic": pc.code if pc else None} for a, u, pc in rows]
+
+
+@router.get("/settings/sla")
+def sla_settings(user: User = Depends(current_user)) -> dict:
+    """Read-only SLA settings for the "Tizim haqida" page (department head and admins)."""
+    if user.role not in ("department_head", *ADMIN_ROLES):
+        raise HTTPException(403, "Ruxsat yo'q")
+    s = get_settings()
+    return {"demo_mode": s.demo_mode, "sla_red_minutes": s.sla_red_minutes,
+            "demo_sla_red_minutes": s.demo_sla_red_minutes, "effective_sla_red_minutes": s.effective_sla_red_minutes,
+            "sla_yellow_hours": s.sla_yellow_hours, "chain": {k: list(v) for k, v in ESCALATION_CHAIN.items()}}

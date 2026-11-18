@@ -71,7 +71,8 @@ class Mahalla(Base):
     polyclinic: Mapped[Polyclinic] = relationship(back_populates="mahallas")
 
 
-POLYCLINIC_ROLES = ("nurse", "doctor", "specialist")
+# department_head = OvaBMU bo'lim mudiri: receives RED alerts a specialist did not acknowledge in time.
+POLYCLINIC_ROLES = ("nurse", "doctor", "specialist", "department_head")
 ADMIN_ROLES = ("district_admin", "region_admin")
 
 
@@ -81,7 +82,7 @@ class User(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     username: Mapped[str] = mapped_column(String(64))
     full_name: Mapped[str] = mapped_column(String(120))
-    role: Mapped[str] = mapped_column(String(16))  # nurse | doctor | specialist | district_admin | region_admin
+    role: Mapped[str] = mapped_column(String(16))  # POLYCLINIC_ROLES | district_admin | region_admin
     polyclinic_id: Mapped[int | None] = mapped_column(ForeignKey("polyclinics.id"), index=True)
     region_id: Mapped[int | None] = mapped_column(ForeignKey("regions.id"))
     district_id: Mapped[int | None] = mapped_column(ForeignKey("districts.id"))
@@ -226,6 +227,21 @@ class Alert(Base):
     action_taken: Mapped[str | None] = mapped_column(Text)
     risk_assessment: Mapped[RiskAssessment] = relationship()
     pregnancy: Mapped[Pregnancy | None] = relationship()
+    events: Mapped[list["AlertEvent"]] = relationship(back_populates="alert", order_by="AlertEvent.id")
+
+
+class AlertEvent(Base):
+    """Escalation history of one alert: who it was assigned to, when, and by whom (actor None = system)."""
+    __tablename__ = "alert_events"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    alert_id: Mapped[int] = mapped_column(ForeignKey("alerts.id"), index=True)
+    event: Mapped[str] = mapped_column(String(20))  # created | escalated | reassigned | acknowledged | resolved | admin_notified
+    escalation_level: Mapped[int] = mapped_column(Integer, default=0)
+    assignee_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    actor_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    note: Mapped[str | None] = mapped_column(String(300))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    alert: Mapped[Alert] = relationship(back_populates="events")
 
 
 class LlmSummaryCache(Base):

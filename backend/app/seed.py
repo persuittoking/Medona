@@ -17,6 +17,7 @@ from app.db import Base, SessionLocal, engine
 from app.geo import POLYCLINICS, REGIONS, haversine_km
 from app.models import (
     Alert,
+    AlertEvent,
     AuditLog,
     District,
     Mahalla,
@@ -35,6 +36,7 @@ from app.risk.engine import score_pregnancy
 from app.risk.newborn import newborn_hits, newborn_zone
 from app.security.auth import hash_password
 from app.security.crypto import encrypt
+from app.services.alerts import record_event
 from app.services.geo import encrypt_home, sample_points, validate_home
 from app.services.scoring import (
     apply_assessment,
@@ -89,7 +91,7 @@ class Tenant:
         db.add(self.mahalla)
         self.users: dict[str, User] = {}
         for role, title in [("nurse", "Patronaj hamshirasi"), ("doctor", "Oilaviy shifokor"),
-                            ("specialist", "OvaBMU mutaxassisi")]:
+                            ("specialist", "OvaBMU mutaxassisi"), ("department_head", "OvaBMU bo'lim mudiri")]:
             u = User(username=role, full_name=f"{title} ({pdef['code']})", role=role, polyclinic_id=self.polyclinic.id,
                      district_id=district.id, region_id=district.region_id, password_hash=pw)
             db.add(u)
@@ -134,14 +136,15 @@ def _add_pregnancy(db, pat: Patient, preg: dict, status: str = "active") -> Preg
 
 def _score_history(db, rng, pr: Pregnancy, visits: list[dict], nurse: User | None, today: date) -> None:
     """Insert visits chronologically, scoring each one as if entered on that day."""
-    zone, prev_prob, hist = "green", None, []
+    zone, probs, hist = "green", [], []
     for v in visits:
         row = Visit(pregnancy_id=pr.id, entered_by=nurse.id if nurse else None, notes=v.get("notes"),
                     **visit_dict(v))
         db.add(row)
         db.flush()
         hist.append(visit_dict(v))
-        res = score_pregnancy(preg_dict(pr), hist, prev_ml_prob=prev_prob)
+        res = score_pregnancy(preg_dict(pr), hist, prev_ml_prob=probs[-1] if probs else None,
+                              prev_ml_probs=probs[-2:] or None)
         at = datetime.combine(v["visit_date"], datetime.min.time()) + timedelta(hours=5, minutes=int(rng.integers(0, 300)))
         at = min(at, utcnow() - timedelta(minutes=5))  # never in the future
         ra = store_assessment(db, pr, row, res, created_at=at)
@@ -151,11 +154,18 @@ def _score_history(db, rng, pr: Pregnancy, visits: list[dict], nurse: User | Non
             alert.status = "resolved"
             alert.resolved_at = alert.acknowledged_at
             alert.action_taken = str(rng.choice(ACTIONS))
+            record_event(db, alert, "acknowledged", assignee_id=alert.assigned_user_id,
+                         actor_id=alert.assigned_user_id, at=alert.acknowledged_at)
+            record_event(db, alert, "resolved", assignee_id=alert.assigned_user_id,
+                         actor_id=alert.assigned_user_id, note=alert.action_taken, at=alert.resolved_at)
         elif alert is not None and rng.random() < 0.5:
             alert.acknowledged_at = at + timedelta(minutes=int(rng.integers(10, 90)))
             alert.status = "acknowledged"
             alert.action_taken = str(rng.choice(ACTIONS))
-        zone, prev_prob = ra.zone, ra.ml_probability
+            record_event(db, alert, "acknowledged", assignee_id=alert.assigned_user_id,
+                         actor_id=alert.assigned_user_id, note=alert.action_taken, at=alert.acknowledged_at)
+        zone = ra.zone
+        probs.append(ra.ml_probability)
         apply_assessment(pr, ra)
 
 
@@ -183,17 +193,19 @@ def _demo_patients(db, rng, t: Tenant, today: date) -> None:
                 "fundal_height_cm": fundal if fundal is not None else (round(w - 0.5, 1) if w >= 20 else None),
                 "symptoms": list(syms)}
 
-    # DEMO1 — "Dilnoza", 19 y, first pregnancy, 31 weeks: BP slowly rising (118/76 -> 128/82 -> 136/88),
-    # Hb falling (118 -> 104), fundal height slightly behind (2.3 cm, below the T04 rule) -> no single rule
-    # fires, the ML model raises the zone to YELLOW ("zona model tomonidan oshirildi").
+    # DEMO1 — "Dilnoza", 19 y, first pregnancy, 31 weeks: BP rising at every one of the last 3 checkups
+    # (116/72 -> 121/78 -> 127/84; diastolic +3 mmHg/week -> projected 90 in 2 weeks) while every single value is
+    # still below 140/90 and 130/85 -> YELLOW by the predictive trend rule P01 only. Hb drifting down (118 -> 109,
+    # not fast enough for P02), fundal height slightly behind (2.3 cm, below T04).
     # Live demo: new visit BP 152/98, proteinuria +2, severe headache -> RED (R02).
     _, p1, lmp = base("QQR-NUK-DEMO1", "Dilnoza Karimova", 19, 31.3)
     _score_history(db, rng, p1, [
         v(lmp, 10.0, 112, 72, 121, 58.0),
         v(lmp, 16.3, 114, 74, 120, 59.8),
-        v(lmp, 22.3, 118, 76, 118, 62.0),
-        v(lmp, 26.3, 128, 82, 112, 64.0),
-        v(lmp, 29.3, 136, 88, 104, 65.6, fundal=27.0, syms=["edema"]),
+        v(lmp, 22.3, 114, 72, 119, 62.0),
+        v(lmp, 25.3, 116, 72, 118, 63.4),
+        v(lmp, 27.3, 121, 78, 113, 64.6),
+        v(lmp, 29.3, 127, 84, 109, 65.6, fundal=27.0, syms=["edema"]),
     ], nurse, today)
     if p1.current_zone != "yellow":
         print(f"WARNING: DEMO1 should be YELLOW before the live demo but is {p1.current_zone.upper()} "
@@ -225,6 +237,54 @@ def _demo_patients(db, rng, t: Tenant, today: date) -> None:
                  {"check_date": today - timedelta(days=1), "resp_rate": 64, "temperature_c": 36.9, "weight_g": 2080})
 
 
+# Trend-only demo patients (per polyclinic): a clear 3-checkup trend while the last visit is still below every
+# static threshold, so the demo shows "yellow/red by trend only". (code suffix, name, age, current week, expected zone)
+TREND_DEMO_ZONES = {"yellow": 2, "red": 1}
+
+
+def _trend_demo_patients(db, rng, t: Tenant, today: date) -> None:
+    nurse = t.users["nurse"]
+    prefix = f"{t.rdef['code']}-{t.ddef['code']}"
+
+    def add(suffix: str, name: str, age: float, weeks: float, height: float, weight: float,
+            rows: list[tuple[float, int, int, float, float]], open_alert: bool = False) -> None:
+        lmp = today - timedelta(days=int(round(weeks * 7)))
+        birth = lmp - timedelta(days=int(age * 365.25) + 30)
+        pat = t.add_patient(db, {"code": f"{prefix}-{suffix}", "full_name": name, "birth_date": birth,
+                                 "pinfl": f"4{birth:%d%m%y}{rng.integers(1000000, 9999999)}",
+                                 "phone": "+99891" + str(rng.integers(1000000, 9999999))})
+        pr = _add_pregnancy(db, pat, {
+            "lmp_date": lmp, "booking_date": lmp + timedelta(days=70), "gravidity": 2, "parity": 1,
+            "previous_cs": False, "hist_stillbirth": False, "hist_preterm": False, "miscarriages_count": 0,
+            "hist_preeclampsia": False, "hist_pph": False, "diabetes": False, "chronic_htn": False, "heart": False,
+            "kidney": False, "thyroid": False, "epilepsy": False, "multiple_pregnancy": False, "rh_negative": False,
+            "interpregnancy_months": 38, "height_cm": height, "booking_weight_kg": weight})
+        visits = [{"visit_date": lmp + timedelta(days=int(round(w * 7))), "gestational_weeks": w, "systolic": s,
+                   "diastolic": d, "proteinuria": "neg", "hemoglobin_g_l": hb, "fasting_glucose_mmol": 4.5,
+                   "weight_kg": wt, "temperature_c": 36.6, "fetal_heart_rate": 140 if w >= 20 else None,
+                   "fundal_height_cm": round(w - 0.5, 1) if w >= 20 else None, "symptoms": []}
+                  for w, s, d, hb, wt in rows]
+        _score_history(db, rng, pr, visits, nurse, today)
+        if open_alert:  # keep the newest (trend-driven) alert open for the alert inbox demo
+            last = db.query(Alert).filter_by(pregnancy_id=pr.id).order_by(Alert.id.desc()).first()
+            if last is not None:
+                last.status, last.acknowledged_at, last.resolved_at, last.action_taken = "open", None, None, None
+                db.query(AlertEvent).filter(AlertEvent.alert_id == last.id, AlertEvent.event != "created").delete()
+
+    # TRND1: diastolic 72 -> 78 -> 84 (+3/week, projected 90) with 121/84 now -> P01 YELLOW
+    add("TRND1", "Nilufar Saidova", 27, 31.0, 160.0, 60.0, [
+        (10.0, 110, 68, 124, 60.0), (20.0, 112, 70, 122, 64.0), (26.0, 112, 72, 121, 66.6),
+        (28.0, 116, 78, 120, 67.4), (30.0, 121, 84, 119, 68.2)])
+    # TRND2: systolic 116 -> 125 -> 134 (+3/week, projected 140) and already >= 130 -> P01 RED (no static rule)
+    add("TRND2", "Feruza Aliyeva", 29, 30.15, 163.0, 61.0, [
+        (10.0, 112, 70, 125, 61.0), (18.0, 114, 72, 123, 64.0), (24.0, 116, 74, 122, 66.4),
+        (27.0, 125, 79, 121, 67.6), (30.0, 134, 84, 120, 68.8)], open_alert=True)
+    # TRND3: Hb 122 -> 113 -> 104 g/L (-2.25/week, projected 99.5) while still >= 100 -> P02 YELLOW
+    add("TRND3", "Sevara Tursunova", 24, 29.0, 158.0, 56.0, [
+        (10.0, 108, 68, 126, 56.0), (16.0, 110, 70, 124, 58.0), (20.0, 110, 70, 122, 60.0),
+        (24.0, 108, 68, 113, 62.0), (28.0, 110, 70, 104, 64.0)])
+
+
 def _add_newborn(db, pr: Pregnancy, birth: date, ga: float, bw: int, apgar: int, check: dict | None) -> Newborn:
     nb = Newborn(pregnancy_id=pr.id, birth_date=birth, gestational_weeks_at_birth=ga, birth_weight_g=bw, apgar_5=apgar)
     db.add(nb)
@@ -249,10 +309,11 @@ def _add_newborn(db, pr: Pregnancy, birth: date, ga: float, bw: int, apgar: int,
 
 def _final_zone(preg: dict, visits: list[dict]) -> str:
     """Zone after the last visit, scored visit by visit exactly as _score_history does (pure, no DB)."""
-    prev_prob, res = None, None
+    probs, res = [], None
     for k in range(len(visits)):
-        res = score_pregnancy(preg, [visit_dict(v) for v in visits[: k + 1]], prev_ml_prob=prev_prob)
-        prev_prob = res["ml_probability"]
+        res = score_pregnancy(preg, [visit_dict(v) for v in visits[: k + 1]],
+                              prev_ml_prob=probs[-1] if probs else None, prev_ml_probs=probs[-2:] or None)
+        probs.append(res["ml_probability"])
     return res["zone"]
 
 
@@ -364,7 +425,10 @@ def seed(seed_value: int = 7, active_per_mahalla: tuple[int, int] = ACTIVE_PER_M
             if t.pdef["code"] == "PL-NUK-001":
                 for z, k in DEMO_ACTIVE_ZONES.items():  # DEMO1-3 are added below and count towards the mix
                     quotas[z] -= k
+            for z, k in TREND_DEMO_ZONES.items():  # TRND1-3 too
+                quotas[z] = max(0, quotas[z] - k)
             _fill_register(db, rng, t, today, quotas)
+            _trend_demo_patients(db, rng, t, today)
             for _ in range(int(rng.integers(NEWBORNS_PER_MAHALLA[0], NEWBORNS_PER_MAHALLA[1] + 1))):
                 _insert_pregnancy(db, rng, t, today, _draw_candidate(rng, t, today, delivered=True), delivered=True)
 

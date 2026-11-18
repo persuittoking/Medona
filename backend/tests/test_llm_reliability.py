@@ -131,7 +131,7 @@ def test_background_generation_stores_cached_result(client, monkeypatch):
     from app.services import ai_summary as A
     from tests.conftest import NUK, demo, login
 
-    fake = {"source": "ai", "model": "gemini-mock", "summary_uz": "Mock xulosa.", "key_concerns": [],
+    fake = {"version": S.SUMMARY_VERSION, "source": "ai", "model": "gemini-mock", "summary_uz": "Mock xulosa.", "key_concerns": [],
             "recommended_actions": [], "questions_to_ask_patient_uz": [], "disclaimer_uz": S.DISCLAIMER_UZ}
     monkeypatch.setattr(A, "generate_summary", lambda p: (fake, 5, 3))
     _, preg = demo("QQR-NUK-DEMO1")

@@ -17,9 +17,12 @@ All endpoints except `/api/health` and `/api/auth/login` need `Authorization: Be
 | POST | `/api/patients/{patient_id}/reveal` | staff | full name / PINFL / phone. **Writes audit `reveal_pii`.** |
 | POST | `/api/risk/preview` | staff | `VisitIn` → `RiskOut`. Scores WITHOUT saving (live form preview). |
 | POST | `/api/visits` | nurse, doctor | `VisitIn` → `{visit, assessment, previous_zone, alert}`; creates an Alert if the zone got worse. |
-| GET | `/api/alerts` | staff | filters: `status` (`active` = open+escalated, or exact), `level`, `mine`. Runs SLA escalation first. |
-| POST | `/api/alerts/{id}/ack` | specialist, doctor | `{action_taken}` (required, ≥3 chars) |
-| POST | `/api/alerts/{id}/resolve` | specialist, doctor | `{action_taken}` |
+| GET | `/api/alerts` | staff | filters: `status` (`active` = open+escalated, or exact), `level`, `mine`, `escalated` (level ≥1). Each alert: `summary_bullets` (3) + `summary_source` + `summary_status` (`ready`/`pending`/`unavailable`), `trend_driven`, `assigned_role`, `next_role`, `history[]`. Escalation runs in the background job, not here. |
+| GET | `/api/alerts/assignees` | department_head | specialists of the own polyclinic |
+| POST | `/api/alerts/{id}/ack` | specialist, doctor, department_head | `{action_taken}` (required, ≥3 chars) |
+| POST | `/api/alerts/{id}/resolve` | specialist, doctor, department_head | `{action_taken}` |
+| POST | `/api/alerts/{id}/reassign` | department_head | `{user_id, note?}` → a specialist of the same polyclinic; SLA restarts; audit `reassign_alert`; Telegram to the new assignee |
+| GET | `/api/settings/sla` | department_head, admins | read-only SLA values + escalation chain |
 | GET | `/api/dashboard/summary` | staff | KPIs: active, red/yellow/green, open alerts, SLA breaches, median minutes to acknowledge |
 | GET | `/api/dashboard/trend` | staff | weekly distinct pregnancies with red / yellow assessments, last 12 weeks |
 | GET | `/api/dashboard/top` | staff | top-10 highest-risk active pregnancies with main reason |
@@ -54,6 +57,6 @@ Gestational weeks are computed from LMP. Physiologically impossible values → `
 
 ## Alert SLA
 RED: `SLA_RED_MINUTES` (120; **`DEMO_SLA_RED_MINUTES`, default 10, in `DEMO_MODE=true`**). YELLOW: `SLA_YELLOW_HOURS` (72).
-`POST /api/alerts/{id}/demo-expire-sla` (specialist, `DEMO_MODE` only, else 404): sets `sla_due_at` to now so the
+`POST /api/alerts/{id}/demo-expire-sla` (specialist or department_head, `DEMO_MODE` only, else 404): sets `sla_due_at` to now so the
 next escalation run (≤30 s) escalates it; audit action `demo_expire_sla`.
 Escalation every 30 s: polyclinic specialist → polyclinic doctor (level 1) → district admin (level 2, notification only — sees counts, not the patient); status `escalated`.

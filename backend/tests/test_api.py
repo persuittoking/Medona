@@ -125,7 +125,7 @@ def test_escalation_after_sla(client):
     assert escalation_job() >= 1
     alerts = {a["id"]: a for a in client.get("/api/alerts", headers=h).json()}
     assert alerts[aid]["status"] == "escalated" and alerts[aid]["escalation_level"] == 1
-    assert "Oilaviy shifokor" in alerts[aid]["assigned_to"]
+    assert "bo'lim mudiri" in alerts[aid]["assigned_to"]  # RED chain (task 07): specialist -> department head
     with SessionLocal() as db:
         assert db.query(AuditLog).filter_by(action="escalate_alert_l1", entity="alert", entity_id=aid).count() == 1
     client.app.state.scheduler.resume()

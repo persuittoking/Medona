@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.risk.features import SYMPTOMS
 
 Zone = Literal["red", "yellow", "green"]
-Role = Literal["nurse", "doctor", "specialist", "district_admin", "region_admin"]
+Role = Literal["nurse", "doctor", "specialist", "department_head", "district_admin", "region_admin"]
 Proteinuria = Literal["neg", "trace", "+1", "+2", "+3"]
 Symptom = Literal[tuple(SYMPTOMS)]  # type: ignore[valid-type]
 
@@ -43,6 +43,16 @@ class Hit(BaseModel):
     code: str
     zone: str
     uz_text: str
+    # trend hits (kind "trend"): the series the rule used, for the sparkline (P01-P05)
+    kind: str | None = None
+    param: str | None = None
+    values: list[float] | None = None
+    weeks: list[float] | None = None
+    dates: list[date] | None = None
+    direction: Literal["up", "down"] | None = None
+    unit: str | None = None
+    projected: float | None = None
+    horizon_weeks: float | None = None
 
 
 class ShapItem(BaseModel):
@@ -100,6 +110,16 @@ class VisitOut(BaseModel):
     notes: str | None
 
 
+class AlertEventOut(BaseModel):
+    at: datetime
+    event: str
+    escalation_level: int
+    assignee: str | None
+    assignee_role: str | None
+    actor: str | None
+    note: str | None
+
+
 class AlertOut(BaseModel):
     id: int
     level: Literal["red", "yellow"]
@@ -117,6 +137,14 @@ class AlertOut(BaseModel):
     gestational_weeks: float | None
     mahalla_name: str | None
     reasons: list[str]
+    assigned_role: str | None = None
+    assigned_user_id: int | None = None
+    next_role: str | None = None
+    trend_driven: bool = False
+    summary_status: Literal["ready", "pending", "unavailable"] = "pending"
+    summary_bullets: list[str] | None = None
+    summary_source: Literal["ai", "template"] | None = None
+    history: list[AlertEventOut] = []
 
 
 class VisitCreatedOut(BaseModel):
@@ -128,6 +156,11 @@ class VisitCreatedOut(BaseModel):
 
 class ActionIn(BaseModel):
     action_taken: str = Field(min_length=3, max_length=500)
+
+
+class ReassignIn(BaseModel):
+    user_id: int
+    note: str | None = Field(None, max_length=300)
 
 
 class PatientRow(BaseModel):

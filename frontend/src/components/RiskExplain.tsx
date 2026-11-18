@@ -1,5 +1,6 @@
 import type { Risk } from "../api/types";
 import { fmtPct } from "../lib/format";
+import { TrendSpark } from "./Sparkline";
 import { ZoneBadge } from "./ui";
 
 const DOT: Record<string, string> = { red: "bg-zred", yellow: "bg-zyellow", green: "bg-zgreen" };
@@ -30,10 +31,12 @@ export function RiskExplain({ risk, compact = false }: { risk: Risk; compact?: b
             {hits.map((h) => (
               <li key={h.code + h.uz_text} className="flex items-start gap-2 text-sm">
                 <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${DOT[h.zone] ?? "bg-slate-400"}`} />
-                <span>
+                <span className="min-w-0 flex-1">
                   <span className="mr-1 font-mono text-xs text-slate-400">{h.code}</span>
+                  {h.code.startsWith("P") && <span className="mr-1 rounded bg-orange-50 px-1 text-[11px] font-semibold text-orange-800 ring-1 ring-orange-200">Prognoz</span>}
                   {h.uz_text}
                 </span>
+                <TrendSpark hit={h} />
               </li>
             ))}
           </ul>

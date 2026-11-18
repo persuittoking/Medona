@@ -13,7 +13,7 @@ from app.schemas import PatientDetail, PatientRow, PiiOut
 from app.security.crypto import decrypt, mask_name, mask_phone, mask_pinfl
 from app.services.alerts import alert_out
 from app.services.geo import decrypt_home
-from app.services.scoring import preg_dict
+from app.services.scoring import preg_dict, risk_out
 
 router = APIRouter(prefix="/api/patients", tags=["patients"])
 
@@ -36,14 +36,6 @@ def _is_overdue(gw: float, last: date | None) -> bool:
         return True
     limit = T.OVERDUE_DAYS_3RD_TRIMESTER if gw >= T.THIRD_TRIMESTER_WEEKS else T.OVERDUE_DAYS_OTHER
     return (date.today() - last).days > limit
-
-
-def risk_out(ra: RiskAssessment | None) -> dict | None:
-    if ra is None:
-        return None
-    return {"id": ra.id, "zone": ra.zone, "ml_probability": ra.ml_probability, "rule_hits": ra.rule_hits,
-            "trend_hits": ra.trend_hits, "notes": ra.notes or [], "shap_top": ra.shap_top,
-            "model_version": ra.model_version, "explanation_uz": ra.explanation_uz, "created_at": ra.created_at}
 
 
 @router.get("", response_model=list[PatientRow])

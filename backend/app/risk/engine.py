@@ -14,9 +14,17 @@ from app.risk.rules import (
     visit_notes,
     yellow_rules,
 )
-from app.risk.trends import trend_hits, trend_zone
+from app.risk.trends import is_predictive, trend_hits, trend_zone
 
 ZONE_UZ = {"red": "QIZIL", "yellow": "SARIQ", "green": "YASHIL"}
+
+
+COMBO_CODE = "Y16"  # factor combination: not a clinical sign on its own
+
+
+def clinical_yellow(rule_hits: list[dict]) -> bool:
+    """A Tier A clinical yellow rule fired (Tier B factors and their Y16 combination do not count)."""
+    return any(h["zone"] == "yellow" and h["code"] != COMBO_CODE for h in rule_hits)
 
 
 def rule_zone(hits: list[dict]) -> str:
@@ -43,12 +51,14 @@ def explanation_uz(zone: str, rules: list[dict], trends: list[dict], prob: float
         parts.append("Xavf omillari (kuzatuv uchun): " + "; ".join(h["uz_text"] for h in factors) + ".")
     if trends:
         parts.append("Dinamika: " + "; ".join(h["uz_text"] for h in trends) + ".")
+        if (len(trends) == 1 and trends[0]["zone"] != "red" and is_predictive(trends[0]) and clinical_yellow(rules)):
+            parts.append("Yomonlashish trendi klinik xavf belgisi bilan birga — zona QIZILga oshirildi.")
     if prob is not None:
         ups = [s["uz_label"] for s in shap_top if s["direction"] == "up"][:3]
         txt = f"Model bo'yicha xavf ehtimoli {prob:.0%}"
         if ups:
             txt += " (asosiy omillar: " + ", ".join(ups) + ")"
-        if zml == zone != "green" and rule_zone(rules) != zone and trend_zone(trends) != zone:
+        if zml == zone != "green" and rule_zone(rules) != zone and trend_zone(trends, clinical_yellow(rules)) != zone:
             txt += " — zona model tomonidan oshirildi"
         parts.append(txt + ".")
     if zone == "green" and not active and not trends:
@@ -58,8 +68,12 @@ def explanation_uz(zone: str, rules: list[dict], trends: list[dict], prob: float
 
 
 def score_pregnancy(preg: dict, visits: list[dict], prev_ml_prob: float | None = None,
-                    model: Model | None | bool = True) -> dict:
-    """Score the LAST visit in `visits` (chronological). `model=False` disables ML."""
+                    model: Model | None | bool = True, prev_ml_probs: list[float | None] | None = None) -> dict:
+    """Score the LAST visit in `visits` (chronological). `model=False` disables ML.
+
+    `prev_ml_probs`: ML probabilities of the earlier assessments (oldest first) for the P05 trend rule;
+    `prev_ml_prob` alone (the previous one) is enough for T05.
+    """
     if not visits:
         raise ValueError("at least one visit is required")
     mdl = load_model() if model is True else (model or None)
@@ -72,9 +86,9 @@ def score_pregnancy(preg: dict, visits: list[dict], prev_ml_prob: float | None =
         prob = round(mdl.predict(feats), 4)
         shap_top = mdl.explain(feats)
         version = mdl.version
-    trends = trend_hits(preg, visits, prob, prev_ml_prob)
+    trends = trend_hits(preg, visits, prob, prev_ml_prob, prev_ml_probs)
     rules = combine_factors(rules, trends)
-    zr, zt, zml = rule_zone(rules), trend_zone(trends), ml_zone(prob)
+    zr, zt, zml = rule_zone(rules), trend_zone(trends, clinical_yellow(rules)), ml_zone(prob)
     zone = max_zone(zr, zt, zml)
     return {
         "zone": zone,

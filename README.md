@@ -34,7 +34,11 @@ Config: `backend\.env` (template: `backend\.env.example`; the run scripts create
 with a key it calls Google Gemini (`GEMINI_MODEL`, tagged "AI (Gemini)").
 `DEMO_MODE=true` → red-alert SLA is `DEMO_SLA_RED_MINUTES` (default 10), so nothing escalates by itself during
 a pitch. To show escalation live, the specialist presses **"Demo: SLA muddatini hozir tugatish"** on the alert
-row (DEMO_MODE only, audit-logged): the next escalation run (≤30 s) escalates it. Escalation runs as an
+row (DEMO_MODE only, audit-logged): the next escalation run (≤30 s) escalates it. Escalation chain (one place:
+`backend/app/services/alerts.py`): RED specialist → **OvaBMU bo'lim mudiri** (`department_head`) → district admin
+notified with a count only; YELLOW specialist → polyclinic doctor → district admin (count). Telegram: a send-only
+adapter (`services/notify.py`) sends de-identified messages (patient code + 3 bullets) when `TELEGRAM_BOT_TOKEN`
+and the user's chat id are set, otherwise logs them ("offline"). Escalation runs as an
 APScheduler background job every 30 s (started with the backend). Admins can check the LLM integration at
 `GET /api/llm/health` (provider, key present, primary/fallback model, last call ok/failed, every attempt of
 the last call with its duration and error — never the key itself).
@@ -70,20 +74,27 @@ home points on the mahalla map. District/region admins see **aggregated counts o
 ## Demo logins (password `demo1234`)
 | Poliklinika ID | Login | Role |
 |---|---|---|
-| PL-NUK-001 | nurse / doctor / specialist | Nukus shahri — Navbahor MFY (DEMO1–4 live here) |
-| PL-CHL-001 | nurse / doctor / specialist | Toshkent, Chilonzor — Qatortol MFY |
-| PL-FRG-001 | nurse / doctor / specialist | Farg'ona shahri — Maʻrifat mahallasi |
+| PL-NUK-001 | nurse / doctor / specialist / department_head | Nukus shahri — Navbahor MFY (DEMO1–4 live here) |
+| PL-CHL-001 | nurse / doctor / specialist / department_head | Toshkent, Chilonzor — Qatortol MFY |
+| PL-FRG-001 | nurse / doctor / specialist / department_head | Farg'ona shahri — Maʻrifat mahallasi |
+
+Every polyclinic also has 3 trend-only demo patients (`…-TRND1..3`): a clear 3-checkup rising-BP or falling-Hb
+trend while the last visit is still below every static threshold (P01/P02).
 | *(empty)* | district.admin | Nukus shahri (aggregates only) |
 | *(empty)* | region.admin | Qoraqalpog'iston (aggregates only) |
 
 ## Demo story (3 min)
 1. Login map: the polyclinic's mahalla on satellite imagery. Log in **PL-NUK-001 / nurse** → mahalla map with
    patient homes coloured by zone.
-2. Bemorlar → `QQR-NUK-DEMO1` (19 y, 31 weeks, **YELLOW**: no single rule fires, the model raises it — rising BP, falling Hb) → **+ Yangi tashrif** →
+2. Bemorlar → `QQR-NUK-DEMO1` (19 y, 31 weeks, **YELLOW** by the predictive trend P01 only: diastolic 72 → 78 → 84
+   over 3 checkups, projected 90 in 2 weeks; sparkline ↗ in "Nega bu zona?") → **+ Yangi tashrif** →
    BP 152/98, protein **+2**, *Kuchli bosh og'rig'i* → live preview turns **RED** (R02) → save.
-3. Log in **PL-NUK-001 / specialist** → Ogohlantirishlar → red alert with SLA countdown → *Qabul qildim*.
-4. Patient card → "Nega bu zona?" + **AI xulosa**.
+3. Log in **PL-NUK-001 / specialist** → Ogohlantirishlar → red alert with the 3-bullet summary and the live
+   "Javob berish uchun qoldi" countdown → *Demo: SLA muddatini hozir tugatish* → within 30 s "Bo'lim mudiriga yuborildi".
+4. Log in **PL-NUK-001 / department_head** → "Kechikkan ogohlantirishlar" → *Qabul qildim* (or reassign).
 5. Log in **region.admin** → O'zbekiston › Qoraqalpog'iston › Nukus shahri › PL-NUK-001: counts only.
+
+Full script: `docs/DEMO_SCRIPT.md`.
 
 Screenshots: `docs/screenshots/`. Boundary sources: `DATA_SOURCES.md`.
 

@@ -1,5 +1,5 @@
 export type Zone = "red" | "yellow" | "green";
-export type Role = "nurse" | "doctor" | "specialist" | "district_admin" | "region_admin";
+export type Role = "nurse" | "doctor" | "specialist" | "department_head" | "district_admin" | "region_admin";
 export const isAdmin = (r: Role | undefined) => r === "district_admin" || r === "region_admin";
 
 export interface User {
@@ -16,7 +16,20 @@ export interface User {
   region_name: string | null;
 }
 
-export interface Hit { code: string; zone: string; uz_text: string }
+export interface Hit {
+  code: string;
+  zone: string;
+  uz_text: string;
+  /** trend hits (P01-P05): the series the rule used, for the sparkline */
+  kind?: string | null;
+  param?: string | null;
+  values?: number[] | null;
+  weeks?: number[] | null;
+  dates?: string[] | null;
+  direction?: "up" | "down" | null;
+  unit?: string | null;
+  projected?: number | null;
+}
 export interface ShapItem { feature: string; value: number | null; shap: number; direction: "up" | "down"; uz_label: string }
 
 export interface Risk {
@@ -66,6 +79,33 @@ export interface Alert {
   gestational_weeks: number | null;
   mahalla_name: string | null;
   reasons: string[];
+  assigned_role: Role | null;
+  assigned_user_id: number | null;
+  next_role: Role | null;
+  trend_driven: boolean;
+  summary_status: "ready" | "pending" | "unavailable";
+  summary_bullets: string[] | null;
+  summary_source: "ai" | "template" | null;
+  history: AlertEvent[];
+}
+
+export interface AlertEvent {
+  at: string;
+  event: "created" | "escalated" | "reassigned" | "acknowledged" | "resolved" | "admin_notified" | string;
+  escalation_level: number;
+  assignee: string | null;
+  assignee_role: Role | null;
+  actor: string | null;
+  note: string | null;
+}
+
+export interface SlaSettings {
+  demo_mode: boolean;
+  sla_red_minutes: number;
+  demo_sla_red_minutes: number;
+  effective_sla_red_minutes: number;
+  sla_yellow_hours: number;
+  chain: Record<"red" | "yellow", Role[]>;
 }
 
 export interface PatientRow {
@@ -176,6 +216,7 @@ export interface AiSummary {
   key_concerns: { code: string; text_uz: string }[];
   recommended_actions: { code: string; text_uz: string }[];
   questions_to_ask_patient_uz: string[];
+  doctor_bullets_uz?: string[];
   disclaimer_uz: string;
   risk_assessment_id: number;
   generated_at: string;
