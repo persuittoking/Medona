@@ -73,7 +73,7 @@ def test_samarqand_nurses_see_own_mahalla_by_default_and_all_with_filter(client)
 
 
 def test_samarqand_map_and_admin_drilldown_counts_add_up(client):
-    m_data = client.get("/api/polyclinic/map", headers=login(client, SAM, "nurse")).json()
+    m_data = client.get("/api/polyclinic/map", headers=login(client, SAM, "doctor")).json()
     assert len(m_data["mahallas"]) == 3
     assert sum(m["total"] for m in m_data["mahallas"]) == sum(1 for p in m_data["points"] if p["kind"] == "pregnancy")
 
@@ -96,7 +96,7 @@ def test_samarqand_map_and_admin_drilldown_counts_add_up(client):
 
 # ---------------- Part C: Polyclinic search panel & endpoint ----------------
 def test_polyclinic_search_accent_insensitive_and_privacy(client):
-    for headers in (login(client, SAM, "nurse"), login(client, None, "region.admin")):
+    for headers in (login(client, SAM, "doctor"), login(client, None, "region.admin")):
         all_pcs = client.get("/api/geo/polyclinics/search", headers=headers).json()
         assert len(all_pcs) == 4
 

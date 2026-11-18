@@ -78,7 +78,7 @@ function FocusDot({ dot }: { dot: MapDot | null | undefined }) {
  * - optional zone-coloured dots (patient home points — staff of the own polyclinic only).
  */
 export function MahallaMap({ areas, dots = [], height = 420, padding = 0.18, dimOutside = true, interactive = true,
-  defaultBase = "satellite", legend = true, overlay, selectedDot, onCloseSelectedDot }: {
+  defaultBase = "satellite", legend = true, legendZones = ["red", "yellow", "green"], overlay, selectedDot, onCloseSelectedDot }: {
   areas: MapArea[];
   dots?: MapDot[];
   height?: number | string;
@@ -87,6 +87,8 @@ export function MahallaMap({ areas, dots = [], height = 420, padding = 0.18, dim
   interactive?: boolean;
   defaultBase?: "satellite" | "streets";
   legend?: boolean;
+  /** zones listed in the legend (the nurse map shows red only) */
+  legendZones?: Zone[];
   overlay?: ReactNode;
   selectedDot?: MapDot | null;
   onCloseSelectedDot?: () => void;
@@ -168,7 +170,7 @@ export function MahallaMap({ areas, dots = [], height = 420, padding = 0.18, dim
       {legend && dots.length > 0 && (
         <div className="absolute bottom-6 left-3 z-[500] space-y-1 rounded-lg bg-white/95 px-3 py-1.5 text-xs shadow-pop ring-1 ring-slate-200">
           <div className="flex gap-3">
-            {(["red", "yellow", "green"] as Zone[]).map((z) => (
+            {legendZones.map((z) => (
               <span key={z} className="flex items-center gap-1.5">
                 <span className="h-2.5 w-2.5 rounded-full ring-2 ring-white" style={{ background: ZONE_COLOR[z] }} />
                 {ZONE_LABEL[z]} {dots.filter((d) => d.zone === z).length}

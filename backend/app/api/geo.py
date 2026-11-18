@@ -1,7 +1,8 @@
 """Maps.
 
 - /api/polyclinic/map      staff only: own mahalla polygons + home points of pregnant women and children 0-12 months
-                           (a child is shown at the mother's home point; personal data, audited)
+                           (a child is shown at the mother's home point; personal data, audited).
+                           Role `nurse` gets RED-zone points only (minimum necessary data); mahalla counts stay aggregate.
 - /api/public/territories  no auth: demo polyclinic territory outlines (no counts, no patients) for the login map
 - /api/geo/...             admins only: AGGREGATED COUNTS ONLY (no names, codes or home points);
                            ?subject=pregnancy|child|all (default pregnancy), `subject_counts` for the switch
@@ -32,6 +33,8 @@ from app.services.geo import decrypt_home
 router = APIRouter(prefix="/api", tags=["geo"])
 
 AGG_KEYS = ("red", "yellow", "green", "total", "red_share", "open_alerts")
+RED_ONLY_MAP_ROLES = ("nurse",)  # these roles see only red-zone home points on the map
+NO_PC_SEARCH_ROLES = ("nurse",)  # these roles do not get the polyclinic search panel
 SubjectQ = Query("pregnancy", pattern="^(pregnancy|child|all)$")
 _APOS_RE = re.compile(r"['‘’ʻʼ`´ʹ]")
 
@@ -64,6 +67,7 @@ def _mahalla_out(m: Mahalla, agg: dict | None = None) -> dict:
 @router.get("/polyclinic/map")
 def polyclinic_map(request: Request, subject: str = SubjectQ, t: Tenant = Depends(staff())) -> dict:
     pc = t.db.get(Polyclinic, t.polyclinic_id)
+    red_only = t.user.role in RED_ONLY_MAP_ROLES
     stmt = select(Patient, Pregnancy).join(Pregnancy, Pregnancy.patient_id == Patient.id).where(Pregnancy.status == "active")
     points = []
     for pat, preg in t.db.execute(t.patients(stmt)).all():
@@ -77,11 +81,14 @@ def polyclinic_map(request: Request, subject: str = SubjectQ, t: Tenant = Depend
         points.append({"kind": "child", "patient_id": pat.id, "pregnancy_id": None, "newborn_id": nb.id,
                        "code": nb.code, "zone": nb.current_zone, "risk": None,
                        "lat": lat, "lon": lon, "mahalla_id": nb.mahalla_id})
+    if red_only:
+        points = [p for p in points if p["zone"] == "red"]
     m_agg = _counts_by_mahalla(t.db, subject)
     audit(t.db, t.user, "view_home_points", "polyclinic", pc.id, request)
     t.db.commit()
     return {"polyclinic": {"id": pc.id, "code": pc.code, "name": pc.name, "lat": pc.lat, "lon": pc.lon},
-            "mahallas": [_mahalla_out(m, m_agg.get(m.id, _sum([]))) for m in pc.mahallas], "points": points}
+            "mahallas": [_mahalla_out(m, m_agg.get(m.id, _sum([]))) for m in pc.mahallas], "points": points,
+            "red_only": red_only, "subject_counts": _subject_counts(t.db, [pc.id])}
 
 
 @router.get("/public/territories")
@@ -243,9 +250,11 @@ def geo_district(district_id: int, subject: str = SubjectQ, user: User = Depends
 
 
 @router.get("/geo/polyclinics/search")
-def search_polyclinics(q: str = "", subject: str = SubjectQ, _: User = Depends(current_user),
+def search_polyclinics(q: str = "", subject: str = SubjectQ, user: User = Depends(current_user),
                        db: Session = Depends(get_db)) -> list[dict]:
-    """Search polyclinics and mahallas (accent-insensitive). Returns AGGREGATES ONLY — works for every role."""
+    """Search polyclinics and mahallas (accent-insensitive). Returns AGGREGATES ONLY; not available to nurses."""
+    if user.role in NO_PC_SEARCH_ROLES:
+        raise HTTPException(403, "Ruxsat yo'q")
     agg = _counts_by_polyclinic(db, subject)
     m_agg = _counts_by_mahalla(db, subject)
     out = []

@@ -56,10 +56,11 @@ mahallas (`Registon MFY`, `Siyob MFY`, `Bog'ishamol MFY`) with their aggregate z
 
 ## 7. Multi-mahalla polyclinic, map search & external analysis entry (Task 09, ≈60 s)
 1. Log in **PL-SAM-003 / nurse** (Samarqand shahar 3-son oilaviy poliklinikasi, `Registon MFY`) → **Mahalla xaritasi** shows
-   all **3 adjacent mahallas** (`Registon MFY`, `Siyob MFY`, `Bog'ishamol MFY`) with per-mahalla counts and filter chips.
+   all **3 adjacent mahallas** (`Registon MFY`, `Siyob MFY`, `Bog'ishamol MFY`) with per-mahalla counts and filter chips
+   (default = her own mahalla; **"Barcha mahallalar"** shows all three). As a nurse she sees **red dots only** (see step 5).
    In **Bemorlar**, the nurse sees her own mahalla (`Registon MFY`) by default and can switch the filter to
    **"Barcha mahallalar"**.
-2. In the right-side search panel (**"Poliklinika yoki mahalla qidirish…"**), search **"Nukus"** (or `Bog'ishamol` / `Ma'rifat`,
+2. *(Doctor / specialist / department head only — log in **PL-SAM-003 / doctor**.)* In the right-side search panel (**"Poliklinika yoki mahalla qidirish…"**), search **"Nukus"** (or `Bog'ishamol` / `Ma'rifat`,
    accent-insensitive): clicking **Nukus (`PL-NUK-001`)** flies the map to Nukus and shows **mahalla polygons and aggregate counts
    only** with the banner *"Boshqa poliklinika — faqat umumiy sonlar"* (no patient dots or codes). Use **"Bemor kodi bo'yicha
    qidirish"** to centre on a patient dot in your own clinic and open the popup link to her card.
@@ -70,6 +71,14 @@ mahallas (`Registon MFY`, `Siyob MFY`, `Bog'ishamol MFY`) with their aggregate z
 4. Log in **PL-SAM-003 / specialist** → **Ogohlantirishlar**: the new RED alert arrived at Samarqand (the responsible clinic)
    with the badge **"📥 Tashqi natija kelib tushdi (Boshqa poliklinikada o'tkazilgan: Nukus shahar 1-son oilaviy poliklinikasi)"**,
    and the visit on the patient card carries the badge **"Boshqa poliklinikada o'tkazilgan: Nukus shahar 1-son oilaviy poliklinikasi"**.
+
+5. **Nurse map = red only (Task 11).** Log in **PL-NUK-001 / nurse** → **Mahalla xaritasi**: only **red-zone dots**
+   (pregnant women, children and "Hammasi"), no Qizil/Sariq/Yashil toggles and no polyclinic search panel; the map uses the
+   full width and shows the line *"Xaritada faqat qizil zonadagi (shoshilinch yordam kerak bo'lgan) bemorlar ko'rsatiladi"*.
+   The mahalla tooltip still reads the full aggregate (*"Jami: N (Qizil r, Sariq y, Yashil g)"*). This is enforced on the
+   server (minimum necessary data): `/api/polyclinic/map` returns red points only for nurses, and
+   `/api/geo/polyclinics/search` returns 403. The nurse keeps the search box on **Bemorlar**. Log in **PL-NUK-001 / doctor**
+   for comparison: all zones and the search panel, unchanged.
 
 ## 8. Adaptive visit intensity — 12 mandatory visits, doctor confirmation & saved time (≈45 s)
 1. Log in **PL-NUK-001 / doctor** → **Bosh sahifa**: the impact card **"Tejalgan shifokor vaqti"** (`taxminiy, demo ma'lumot`)

@@ -324,6 +324,10 @@ export interface PolyclinicMapData {
   polyclinic: { id: number; code: string; name: string; lat: number; lon: number };
   mahallas: MahallaGeo[];
   points: MapPoint[];
+  /** true for role nurse: the server returned red-zone points only (counts stay aggregate) */
+  red_only?: boolean;
+  /** aggregate totals per subject for this polyclinic (all zones) */
+  subject_counts?: SubjectCounts;
 }
 
 export interface Territory {

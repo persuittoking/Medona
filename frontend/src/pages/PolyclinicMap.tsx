@@ -8,6 +8,7 @@ import { PolyclinicSearchPanel } from "../components/PolyclinicSearchPanel";
 import { SubjectSwitch } from "../components/SubjectSwitch";
 import { ErrorBox, Skeleton } from "../components/ui";
 import { ZONE_COLOR, ZONE_LABEL } from "../i18n/uz";
+import { useAuth } from "../lib/auth";
 import { fmtPct } from "../lib/format";
 import { useSubject } from "../lib/subject";
 
@@ -40,23 +41,37 @@ export function toDots(points: MapPoint[], nav: NavigateFunction): MapDot[] {
   return points.map((p) => toDot(p, nav));
 }
 
+export const NURSE_MAP_INFO = "Xaritada faqat qizil zonadagi (shoshilinch yordam kerak bo'lgan) bemorlar ko'rsatiladi";
+
+/** Mahalla tooltip from the server's aggregate counts (never from the possibly red-only points). */
+function mahallaLabel(x: { name: string; total?: number; red?: number; yellow?: number; green?: number }): string {
+  return `${x.name} — Jami: ${x.total ?? 0} (Qizil ${x.red ?? 0}, Sariq ${x.yellow ?? 0}, Yashil ${x.green ?? 0})`;
+}
+
 export default function PolyclinicMap() {
+  const { user } = useAuth();
   const [subject, setSubject] = useSubject();
   const q = usePolyclinicMap(subject);
   const nav = useNavigate();
   const [zones, setZones] = useState<Zone[]>(["red", "yellow", "green"]);
-  const [mahallaFilter, setMahallaFilter] = useState<number | "all">("all");
+  const [mahallaChoice, setMahallaFilter] = useState<number | "all" | null>(null);
   const [otherPc, setOtherPc] = useState<PolyclinicSearchItem | null>(null);
   const [selectedDot, setSelectedDot] = useState<MapDot | null>(null);
 
   if (q.error) return <ErrorBox error={q.error} />;
   if (!q.data) return <Skeleton className="h-[70vh]" />;
   const d = q.data;
+  // Nurse: the server sends red-zone points only; no zone toggles and no polyclinic search panel.
+  const redOnly = !!d.red_only || user?.role === "nurse";
+  const myMahalla = user?.mahalla_id;
+  const ownMahalla = redOnly && myMahalla != null && d.mahallas.some((x) => x.id === myMahalla) ? myMahalla : "all";
+  const mahallaFilter = mahallaChoice ?? ownMahalla;
   const bySubject = pointsFor(d.points, subject);
   const byMahalla = mahallaFilter === "all" ? bySubject : bySubject.filter((p) => p.mahalla_id === mahallaFilter);
-  const points = byMahalla.filter((p) => zones.includes(p.zone));
+  const points = redOnly ? byMahalla : byMahalla.filter((p) => zones.includes(p.zone));
   const nChild = d.points.filter((p) => p.kind === "child").length;
-  const counts = { pregnancy: d.points.length - nChild, child: nChild, all: d.points.length };
+  const counts = d.subject_counts ?? { pregnancy: d.points.length - nChild, child: nChild, all: d.points.length };
+  const totalAll = d.mahallas.reduce((sum, x) => sum + (x.total ?? 0), 0);
   const m = d.mahallas[0];
 
   const visibleMahallas = mahallaFilter === "all" ? d.mahallas : d.mahallas.filter((x) => x.id === mahallaFilter);
@@ -67,17 +82,7 @@ export default function PolyclinicMap() {
         fill: shareColor(x.red_share ?? 0),
         label: `${x.name} — Jami: ${x.total} (Qizil ${x.red}, Sariq ${x.yellow}, Yashil ${x.green} · Qizil ulushi ${fmtPct(x.red_share)})`,
       }))
-    : visibleMahallas.map((x) => {
-        const mPts = bySubject.filter((p) => p.mahalla_id === x.id);
-        const r = mPts.filter((p) => p.zone === "red").length;
-        const y = mPts.filter((p) => p.zone === "yellow").length;
-        const g = mPts.filter((p) => p.zone === "green").length;
-        return {
-          key: String(x.id),
-          boundary: x.boundary,
-          label: `${x.name} — Jami: ${mPts.length} (Qizil ${r}, Sariq ${y}, Yashil ${g})`,
-        };
-      });
+    : visibleMahallas.map((x) => ({ key: String(x.id), boundary: x.boundary, label: mahallaLabel(x) }));
 
   return (
     <div className="space-y-4">
@@ -104,6 +109,12 @@ export default function PolyclinicMap() {
         </div>
       ) : (
         <div className="flex flex-wrap items-center justify-between gap-2">
+          {redOnly ? (
+            <p className="flex items-center gap-2 text-sm text-slate-600">
+              <span className="h-2.5 w-2.5 rounded-full" style={{ background: ZONE_COLOR.red }} />
+              {NURSE_MAP_INFO}
+            </p>
+          ) : (
           <div className="flex flex-wrap gap-2">
             {(["red", "yellow", "green"] as Zone[]).map((z) => {
               const on = zones.includes(z);
@@ -116,6 +127,7 @@ export default function PolyclinicMap() {
               );
             })}
           </div>
+          )}
           {d.mahallas.length > 1 && (
             <div className="flex flex-wrap gap-1.5">
               <button
@@ -123,10 +135,10 @@ export default function PolyclinicMap() {
                 onClick={() => setMahallaFilter("all")}
                 className={`btn-sm btn ${mahallaFilter === "all" ? "bg-brand-700 text-white" : "bg-white ring-1 ring-slate-300"}`}
               >
-                Barcha mahallalar ({bySubject.length})
+                Barcha mahallalar ({totalAll})
               </button>
               {d.mahallas.map((mh) => {
-                const cnt = bySubject.filter((p) => p.mahalla_id === mh.id).length;
+                const cnt = mh.total ?? 0;
                 return (
                   <button
                     key={mh.id}
@@ -143,14 +155,16 @@ export default function PolyclinicMap() {
         </div>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto]">
+      <div className={redOnly ? "" : "grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto]"}>
         <MahallaMap
           height="calc(100vh - 260px)"
           areas={areas}
           dots={otherPc ? [] : toDots(points, nav)}
           selectedDot={otherPc ? null : selectedDot}
           onCloseSelectedDot={() => setSelectedDot(null)}
+          legendZones={redOnly ? ["red"] : undefined}
         />
+        {!redOnly && (
         <PolyclinicSearchPanel
           subject={subject}
           ownPolyclinicId={d.polyclinic.id}
@@ -166,6 +180,7 @@ export default function PolyclinicMap() {
             setSelectedDot(toDot(pt, nav));
           }}
         />
+        )}
       </div>
 
       <p className="text-xs text-slate-500">

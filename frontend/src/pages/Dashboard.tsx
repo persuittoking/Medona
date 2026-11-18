@@ -9,7 +9,7 @@ import { Empty, ErrorBox, Skeleton, ZoneBadge } from "../components/ui";
 import { useAuth } from "../lib/auth";
 import { fmtAge, fmtMinutes, fmtPct, fmtWeeks } from "../lib/format";
 import { useSubject } from "../lib/subject";
-import { pointsFor, toDots, usePolyclinicMap } from "./PolyclinicMap";
+import { NURSE_MAP_INFO, pointsFor, toDots, usePolyclinicMap } from "./PolyclinicMap";
 
 const ACTIVE_LABEL = { pregnancy: "Faol homiladorlar", child: "Kuzatuvdagi bolalar", all: "Jami kuzatuvda" } as const;
 
@@ -121,8 +121,10 @@ export default function Dashboard() {
           {map.error ? <ErrorBox error={map.error} /> : !map.data ? <Skeleton className="h-[440px]" /> : (
             <MahallaMap height={440}
               areas={map.data.mahallas.map((m) => ({ key: String(m.id), boundary: m.boundary, label: m.name }))}
-              dots={toDots(pointsFor(map.data.points, subject), nav)} />
+              dots={toDots(pointsFor(map.data.points, subject), nav)}
+              legendZones={map.data.red_only ? ["red"] : undefined} />
           )}
+          {map.data?.red_only && <p className="mt-2 text-xs text-slate-500">{NURSE_MAP_INFO}</p>}
         </section>
 
         <section className="card">

@@ -55,7 +55,7 @@ def test_home_point_visible_to_own_polyclinic_only(client):
     own = client.get(f"/api/patients/{pid}", headers=login(client, NUK, "nurse")).json()
     assert set(own["home"]) == {"lat", "lon"}
     assert client.get(f"/api/patients/{pid}", headers=login(client, CHL, "nurse")).status_code == 404
-    m = client.get("/api/polyclinic/map", headers=login(client, NUK, "nurse")).json()
+    m = client.get("/api/polyclinic/map", headers=login(client, NUK, "doctor")).json()
     assert any(pt["patient_id"] == pid for pt in m["points"]) and m["mahallas"][0]["boundary"]["type"] == "Polygon"
 
 
