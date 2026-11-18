@@ -1,4 +1,7 @@
 export type Zone = "red" | "yellow" | "green";
+/** What a screen shows: pregnant women, children 0-12 months, or both (the "Homiladorlar | Bolalar | Hammasi" switch). */
+export type Subject = "pregnancy" | "child" | "all";
+export type SubjectCounts = Record<Subject, number>;
 export type Role = "nurse" | "doctor" | "specialist" | "department_head" | "district_admin" | "region_admin";
 export const isAdmin = (r: Role | undefined) => r === "district_admin" || r === "region_admin";
 
@@ -29,6 +32,8 @@ export interface Hit {
   direction?: "up" | "down" | null;
   unit?: string | null;
   projected?: number | null;
+  /** infant growth trends (G01/G02): the child's age at each point */
+  ages_months?: number[] | null;
 }
 export interface ShapItem { feature: string; value: number | null; shap: number; direction: "up" | "down"; uz_label: string }
 
@@ -79,6 +84,11 @@ export interface Alert {
   gestational_weeks: number | null;
   mahalla_name: string | null;
   reasons: string[];
+  subject: "pregnancy" | "child";
+  /** "Homilador · 32 hafta" | "Bola · 4 oy" */
+  subject_label: string | null;
+  newborn_id: number | null;
+  child_age_days: number | null;
   assigned_role: Role | null;
   assigned_user_id: number | null;
   next_role: Role | null;
@@ -126,6 +136,11 @@ export interface PatientRow {
 
 export interface Newborn {
   id: number;
+  code: string | null;
+  sex: Sex | null;
+  status: string;
+  age_days: number | null;
+  pregnancy_id: number | null;
   birth_date: string;
   gestational_weeks_at_birth: number;
   birth_weight_g: number;
@@ -180,7 +195,12 @@ export interface VisitCreated {
 }
 
 export interface Summary {
+  subject: Subject;
+  /** active subjects of the chosen kind */
+  active: number;
   active_pregnancies: number;
+  active_children: number;
+  counts: SubjectCounts;
   red: number;
   yellow: number;
   green: number;
@@ -192,12 +212,15 @@ export interface Summary {
 
 
 export interface TopRow {
+  subject: "pregnancy" | "child";
   patient_id: number;
-  pregnancy_id: number;
+  pregnancy_id: number | null;
+  newborn_id: number | null;
   code: string;
-  name_masked: string;
+  name_masked: string | null;
   mahalla_name: string;
-  gestational_weeks: number;
+  gestational_weeks: number | null;
+  child_age_days: number | null;
   zone: Zone;
   risk: number | null;
   main_reason: string | null;
@@ -234,8 +257,10 @@ export interface MahallaGeo {
 }
 
 export interface MapPoint {
+  kind: "pregnancy" | "child";
   patient_id: number;
-  pregnancy_id: number;
+  pregnancy_id: number | null;
+  newborn_id: number | null;
   code: string;
   zone: Zone;
   risk: number | null;
@@ -280,6 +305,7 @@ export interface Crumb { level: string; id?: number; name: string }
 
 export interface GeoLevel {
   level: "country" | "region" | "district";
+  subject_counts: SubjectCounts;
   id?: number;
   name: string;
   children: GeoNode[];
@@ -288,6 +314,7 @@ export interface GeoLevel {
 
 export interface GeoPolyclinic extends Agg {
   level: "polyclinic";
+  subject_counts: SubjectCounts;
   id: number;
   code: string;
   name: string;
@@ -295,4 +322,96 @@ export interface GeoPolyclinic extends Agg {
   lon: number;
   territory: { name: string; boundary: GeoPolygon }[];
   breadcrumb: Crumb[];
+}
+
+// ---------------- children 0-12 months ("Bolalar") ----------------
+export type Sex = "m" | "f";
+export type Feeding = "exclusive_breast" | "mixed" | "formula" | "complementary";
+
+export interface ChildRow {
+  newborn_id: number;
+  code: string;
+  mother_patient_id: number;
+  mother_code: string;
+  sex: Sex | null;
+  age_days: number;
+  zone: Zone;
+  risk: number | null;
+  last_check_date: string | null;
+  overdue: boolean;
+  mahalla: string;
+  main_reason: string | null;
+}
+
+export interface ChildCheck {
+  id: number;
+  check_date: string;
+  age_days: number | null;
+  weight_g: number | null;
+  length_cm: number | null;
+  head_circ_cm: number | null;
+  resp_rate: number | null;
+  temperature_c: number | null;
+  feeding: Feeding | null;
+  not_feeding_well: boolean | null;
+  vomiting_everything: boolean | null;
+  convulsions: boolean | null;
+  lethargic: boolean | null;
+  movement_only_when_stimulated: boolean | null;
+  severe_chest_indrawing: boolean | null;
+  jaundice_first_24h: boolean | null;
+  jaundice_palms_soles: boolean | null;
+  blood_in_stool: boolean | null;
+  diarrhoea_days: number | null;
+  cough_days: number | null;
+  vaccines_given: string[] | null;
+  vaccines_due_overdue: string[] | null;
+  notes: string | null;
+}
+
+export interface Vaccine {
+  code: string;
+  family: string;
+  due_date: string;
+  status: "given" | "overdue" | "due" | "upcoming";
+  days_late: number;
+}
+
+export interface GrowthPoint {
+  age_months: number;
+  weight_kg?: number | null;
+  z?: number | null;
+  median?: number | null;
+  minus2sd?: number | null;
+}
+
+export interface ChildDetail {
+  newborn_id: number;
+  code: string;
+  sex: Sex | null;
+  status: string;
+  birth_date: string;
+  age_days: number;
+  gestational_weeks_at_birth: number;
+  birth_weight_g: number;
+  apgar_5: number | null;
+  zone: Zone;
+  mother_patient_id: number;
+  mother_code: string;
+  mahalla: string;
+  polyclinic_name: string;
+  latest_assessment: Risk | null;
+  checks: ChildCheck[];
+  assessments: Risk[];
+  alerts: Alert[];
+  growth: GrowthPoint[];
+  reference: GrowthPoint[];
+  vaccines: Vaccine[];
+}
+
+export interface ChildCheckCreated {
+  check: ChildCheck;
+  assessment: Risk;
+  previous_zone: Zone;
+  alert: Alert | null;
 }

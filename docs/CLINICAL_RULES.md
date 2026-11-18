@@ -105,6 +105,53 @@ oshmoqda: 118 → 126 → 134; shu sur'atda 2 haftada 140 dan oshishi mumkin". T
 | N12 | YELLOW | mother was RED in the 3rd trimester |
 | N13 | YELLOW | no postnatal check by day 3 |
 
+N01–N13 apply **from day 0 to day 28** (`NEONATAL_DAYS`). After that the infant rules below take over.
+
+## D2. Children 0–12 months ("Bola") — `backend/app/risk/infant.py`
+
+A child is followed until the 1st birthday (`status` active → graduated). **No ML model for children:** zone =
+max(rule zone, growth-trend zone), and the explanation says "Bolalar uchun faqat klinik qoidalar va trendlar".
+Sources: WHO IMCI chart booklet (2014): "sick young infant up to 2 months" and "sick child 2 months to 5 years"
+danger signs; WHO Child Growth Standards (2006), weight-for-age; the national immunisation calendar of Uzbekistan
+(first-year doses). All thresholds are in `thresholds.py` (`INF_*`, `WFA_TABLE`, `VACCINE_SCHEDULE`).
+**Status: must be verified by a clinician before any real use.**
+
+| Code | Zone | Rule (age) |
+|---|---|---|
+| I01 | RED | not able to feed / breastfeed (day 29+; N01 before) |
+| I02 | RED | vomits everything (any age) |
+| I03 | RED | convulsions (day 29+; N02 before) |
+| I04 | RED | lethargic / unconscious, or moves only when stimulated (day 29+; `lethargic` at any age) |
+| I05 | RED | fast breathing **for age**: ≥ 60/min under 2 months, ≥ 50/min from 2 to 12 months (day 29+; N03 before) |
+| I06 | RED | severe chest indrawing (day 29+; N04 before) |
+| I07 | RED | temperature ≥ 38.0 °C under 2 months, or < 35.5 °C (day 29+; N05 before) |
+| I08 | RED | blood in stool |
+| I09 | RED | diarrhoea ≥ 14 days |
+| I10 | YELLOW | weight-for-age below −2 SD (WHO table for the child's sex) |
+| I11 | YELLOW | a scheduled vaccine dose more than 30 days overdue |
+| I12 | YELLOW | cough ≥ 14 days |
+| I13 | YELLOW | no check for more than 30 days (monthly checks in the first year; day 29+) |
+| I14 | YELLOW | not exclusively breastfed before 6 months (mixed, formula or complementary food) |
+
+**Weight-for-age z-score.** `WFA_TABLE` holds the WHO median and −2 SD weight (kg) for each completed month
+0–12, boys and girls (WHO simplified field tables). z = (weight − median) / SD with SD = (median − (−2 SD)) / 2,
+linear between months. This approximates the WHO LMS method on the lower half of the distribution, which is
+where the rules act.
+
+**Vaccines.** Only dose names and due ages are stored (`VACCINE_SCHEDULE`: HepB-0 day 0; BCG, OPV-0 day 3;
+Penta-1, OPV-1, Rota-1, PCV-1 at 2 months; the 2nd doses at 3 months; Penta-3, OPV-3, IPV-1 at 4 months; MMR-1,
+PCV-3 at 12 months). Due dates are computed from the birth date. Doses given are recorded per check
+(`vaccines_given`), and the overdue list on that day is stored in `vaccines_due_overdue`.
+
+### Growth trends (last checks, ≥ 7 days apart)
+
+| Code | Zone | Rule |
+|---|---|---|
+| G01 | ≥ YELLOW | weight-for-age z fell by ≥ 0.67 since the previous check (≈ crossing two percentile lines) |
+| G02 | ≥ YELLOW | weight not increasing at 2 consecutive checks ("o'sish to'xtashi") |
+
+Combination (same idea as task 07): a growth trend **plus any yellow rule**, or both G01 and G02 → **RED**.
+
 ## E. ML thresholds
 `ML_YELLOW` / `ML_RED` are written by `backend/ml/train.py`, chosen on a held-out calibration split so that
 the combined system (rules + trends OR ML ≥ yellow) flags ≥85% of pregnancies with an adverse outcome

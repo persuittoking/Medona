@@ -34,6 +34,12 @@ All endpoints except `/api/health` and `/api/auth/login` need `Authorization: Be
 | GET | `/api/geo/polyclinics/{id}` | admins | one polyclinic: counts + territory + breadcrumb. **Never** names, codes or home points |
 | GET | `/api/analytics/model` | all | `ml/artifacts/metrics.json` |
 | GET | `/api/audit` | admins | own district/region staff; filters `action`, `entity` |
+| GET | `/api/children?zone&q&status=active` | staff | children 0–12 months of this polyclinic (tenant key copied from the mother) |
+| GET | `/api/children/{newborn_id}` | staff | child card: zone, explanation, checks, weight-for-age points + WHO reference, vaccine status, alerts. **Writes audit `view_child`.** |
+| POST | `/api/children/risk/preview` | staff | score an infant check without saving (live preview) |
+| POST | `/api/children/checks` | nurse, doctor | save an infant check → score → alert if the zone gets worse (`Alert.newborn_id`) |
+| GET | `/api/llm/summary/child/{newborn_id}` | staff | AI summary for a child (child allow-list payload: age in months, sex, last 3 checks, hits) |
+| — | `?subject=pregnancy\|child\|all` | — | on `/api/dashboard/*`, `/api/alerts`, `/api/geo/*` (admin geo answers include `subject_counts`) |
 | GET | `/api/llm/summary/{pregnancy_id}` | staff | AI summary (de-identified input) with template fallback, cached per assessment and generated in the background: **202** `{"status":"pending"}` until ready, then 200 `{"status":"ready", ...}` (poll every 3 s). `?refresh=true` regenerates. `source`: `ai` \| `template` |
 
 ## VisitIn

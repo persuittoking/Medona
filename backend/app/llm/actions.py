@@ -25,6 +25,15 @@ ACTIONS: dict[str, str] = {
     "A18": "Terapevt yoki tegishli mutaxassis konsultatsiyasi (surunkali kasallik)",
     "A19": "Rezus-antitelalar tahlilini tekshirish",
     "A20": "Tug'ruq rejasini perinatal markaz bilan kelishish",
+    # children 0-12 months (task 08)
+    "A21": "Bolani shoshilinch ravishda bolalar shifoxonasiga yo'llash",
+    "A22": "Pediatr ko'rigiga 24 soat ichida yozish",
+    "A23": "Emizish va ovqatlantirish bo'yicha onaga maslahat",
+    "A24": "Vaznni 7-14 kun ichida qayta o'lchash va o'sish grafigini kuzatish",
+    "A25": "Kechikkan emlashlar uchun emlash xonasiga yo'llash",
+    "A26": "Patronaj hamshirasining bolani uyda ko'rishi (3 kun ichida)",
+    "A27": "Suvsizlanish belgilarini baholash va onaga suyuqlik berish bo'yicha tushuntirish",
+    "A28": "Onaga bolaning xavfli belgilari haqida tushuntirish (qachon darhol murojaat qilish kerak)",
 }
 
 # Deterministic rule/trend -> action mapping used by the template fallback.
@@ -39,6 +48,13 @@ RULE_ACTIONS: dict[str, list[str]] = {
     "T05": ["A10"],
     "P01": ["A02", "A03", "A10"], "P02": ["A04", "A05"], "P03": ["A02", "A03", "A07"], "P04": ["A06", "A10"],
     "P05": ["A10"],
+    # newborn (day 0-28) and infant (0-12 months)
+    **{c: ["A21", "A28"] for c in ("N01", "N02", "N03", "N04", "N05", "N06", "N07", "N08")},
+    "N09": ["A22", "A24"], "N10": ["A22", "A24"], "N11": ["A22"], "N12": ["A22"], "N13": ["A26"],
+    **{c: ["A21", "A28"] for c in ("I01", "I03", "I04", "I05", "I06", "I07")},
+    "I02": ["A21", "A27"], "I08": ["A21", "A27"], "I09": ["A21", "A27"],
+    "I10": ["A24", "A23", "A22"], "I11": ["A25"], "I12": ["A22"], "I13": ["A26"], "I14": ["A23"],
+    "G01": ["A24", "A23", "A22"], "G02": ["A24", "A23", "A22"],
 }
 
 

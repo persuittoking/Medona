@@ -4,8 +4,9 @@ from app.api.deps import require_admin
 from app.api.tenancy import Tenant, staff
 from app.config import get_settings
 from app.llm.summary import llm_status
-from app.models import User
+from app.models import RiskAssessment, User
 from app.services.ai_summary import build_and_store, generate_cached, get_cached, is_pending
+from app.services.children import latest_child_assessment
 from app.services.scoring import latest_assessment
 
 router = APIRouter(prefix="/api/llm", tags=["llm"])
@@ -20,11 +21,26 @@ def llm_summary(pregnancy_id: int, background: BackgroundTasks, response: Respon
     202 {"status": "pending"}; the card polls until 200 {"status": "ready", ...}. ?refresh=true regenerates.
     Without an API key the template ("Shablon") is instant, so it is built inline.
     """
-    db = t.db
     preg = t.get_pregnancy(pregnancy_id)
-    ra = latest_assessment(db, preg.id)
+    ra = latest_assessment(t.db, preg.id)
     if ra is None:
         raise HTTPException(404, "Bu homiladorlik uchun hali baholash yo'q")
+    return _summary(t, ra, background, response, refresh)
+
+
+@router.get("/summary/child/{newborn_id}")
+def llm_child_summary(newborn_id: int, background: BackgroundTasks, response: Response, refresh: bool = False,
+                      t: Tenant = Depends(staff())) -> dict:
+    """Same contract as /summary/{pregnancy_id}, for a child's latest assessment (child allow-list payload)."""
+    nb = t.get_newborn(newborn_id)
+    ra = latest_child_assessment(t.db, nb.id)
+    if ra is None:
+        raise HTTPException(404, "Bu bola uchun hali baholash yo'q")
+    return _summary(t, ra, background, response, refresh)
+
+
+def _summary(t: Tenant, ra: RiskAssessment, background: BackgroundTasks, response: Response, refresh: bool) -> dict:
+    db = t.db
     cached = get_cached(db, ra.id)
     if cached is not None and refresh and not is_pending(ra.id):
         db.delete(cached)

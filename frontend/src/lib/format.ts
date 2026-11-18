@@ -27,6 +27,14 @@ export function fmtWeeks(w: number): string {
   return days ? `${weeks} hafta ${days} kun` : `${weeks} hafta`;
 }
 
+/** A child's age: "12 kun" under 2 months, otherwise "4 oy" (or "4 oy 10 kun" with `exact`). */
+export function fmtAge(days: number, exact = false): string {
+  if (days < 60) return `${days} kun`;
+  const months = Math.floor(days / 30.4375);
+  const rest = Math.round(days - months * 30.4375);
+  return exact && rest ? `${months} oy ${rest} kun` : `${months} oy`;
+}
+
 export function fmtMinutes(m: number | null | undefined): string {
   if (m == null) return "—";
   if (m < 60) return `${Math.round(m)} daq`;

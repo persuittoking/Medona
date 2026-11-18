@@ -1,7 +1,7 @@
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { CircleMarker, MapContainer, Polygon, Polyline, TileLayer, Tooltip, useMap } from "react-leaflet";
+import { CircleMarker, MapContainer, Marker, Polygon, Polyline, TileLayer, Tooltip, useMap } from "react-leaflet";
 import type { GeoPolygon, Zone } from "../api/types";
 import { SATELLITE, STREETS, ZONE_COLOR, ZONE_LABEL } from "../i18n/uz";
 
@@ -28,7 +28,25 @@ export interface MapDot {
   lon: number;
   zone: Zone;
   label: string;
+  /** circle = pregnant woman, square = child 0-12 months (same zone colours) */
+  shape?: "circle" | "square";
   onClick?: () => void;
+}
+
+const squareIcons = new Map<string, L.DivIcon>();
+/** Rounded-square marker for a child, cached per zone. */
+function squareIcon(zone: Zone): L.DivIcon {
+  let icon = squareIcons.get(zone);
+  if (!icon) {
+    const size = zone === "red" ? 14 : 11;
+    icon = L.divIcon({
+      className: "",
+      iconSize: [size, size],
+      html: `<span style="display:block;width:${size}px;height:${size}px;border-radius:3px;background:${ZONE_COLOR[zone]};border:1.5px solid #fff;box-shadow:0 0 0 1px rgba(15,23,42,.35)"></span>`,
+    });
+    squareIcons.set(zone, icon);
+  }
+  return icon;
 }
 
 function FitTo({ bounds, padding }: { bounds: L.LatLngBounds; padding: number }) {
@@ -92,7 +110,12 @@ export function MahallaMap({ areas, dots = [], height = 420, padding = 0.18, dim
           <Polyline key={`line-${a.key}`} positions={a.rings[0]} interactive={false}
             pathOptions={{ color: base === "satellite" ? "#CCFBF1" : glow, weight: 3.5, opacity: 1, lineJoin: "round" }} />
         ))}
-        {dots.map((d) => (
+        {dots.map((d) => d.shape === "square" ? (
+          <Marker key={d.key} position={[d.lat, d.lon]} icon={squareIcon(d.zone)}
+            eventHandlers={d.onClick ? { click: d.onClick } : undefined}>
+            <Tooltip className="zone-tip" direction="top" offset={[0, -6]}>{d.label} · {ZONE_LABEL[d.zone]}</Tooltip>
+          </Marker>
+        ) : (
           <CircleMarker key={d.key} center={[d.lat, d.lon]} radius={d.zone === "red" ? 7 : 5.5}
             eventHandlers={d.onClick ? { click: d.onClick } : undefined}
             pathOptions={{ color: "#ffffff", weight: 1.5, fillColor: ZONE_COLOR[d.zone], fillOpacity: 1 }}>
@@ -110,13 +133,21 @@ export function MahallaMap({ areas, dots = [], height = 420, padding = 0.18, dim
         ))}
       </div>
       {legend && dots.length > 0 && (
-        <div className="absolute bottom-6 left-3 z-[500] flex gap-3 rounded-lg bg-white/95 px-3 py-1.5 text-xs shadow-pop ring-1 ring-slate-200">
-          {(["red", "yellow", "green"] as Zone[]).map((z) => (
-            <span key={z} className="flex items-center gap-1.5">
-              <span className="h-2.5 w-2.5 rounded-full ring-2 ring-white" style={{ background: ZONE_COLOR[z] }} />
-              {ZONE_LABEL[z]} {dots.filter((d) => d.zone === z).length}
-            </span>
-          ))}
+        <div className="absolute bottom-6 left-3 z-[500] space-y-1 rounded-lg bg-white/95 px-3 py-1.5 text-xs shadow-pop ring-1 ring-slate-200">
+          <div className="flex gap-3">
+            {(["red", "yellow", "green"] as Zone[]).map((z) => (
+              <span key={z} className="flex items-center gap-1.5">
+                <span className="h-2.5 w-2.5 rounded-full ring-2 ring-white" style={{ background: ZONE_COLOR[z] }} />
+                {ZONE_LABEL[z]} {dots.filter((d) => d.zone === z).length}
+              </span>
+            ))}
+          </div>
+          {dots.some((d) => d.shape === "square") && (
+            <div className="flex gap-3 text-slate-600">
+              <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-slate-500" /> Homilador</span>
+              <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-[3px] bg-slate-500" /> Bola (0–1 yosh, ona manzilida)</span>
+            </div>
+          )}
         </div>
       )}
       {overlay}

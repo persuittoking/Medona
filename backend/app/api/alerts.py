@@ -4,10 +4,10 @@ from sqlalchemy import select
 from app.api.deps import audit
 from app.api.tenancy import Tenant, staff
 from app.config import get_settings
-from app.models import Alert, Patient, Pregnancy, User, utcnow
+from app.models import Alert, User, utcnow
 from app.schemas import ActionIn, AlertOut, ReassignIn
 from app.services.ai_summary import build_and_store, generate_cached, get_cached, is_pending
-from app.services.alerts import ACK_ROLES, ACTIVE, alert_out, record_event, sla_delta
+from app.services.alerts import ACK_ROLES, ACTIVE, alert_out, by_subject, record_event, sla_delta
 from app.services.notify import notify_reassigned
 
 router = APIRouter(prefix="/api/alerts", tags=["alerts"])
@@ -28,12 +28,11 @@ def ensure_summaries(t: Tenant, alerts: list[Alert], background: BackgroundTasks
 
 @router.get("", response_model=list[AlertOut])
 def list_alerts(background: BackgroundTasks, status: str | None = None, level: str | None = None,
-                mine: bool = False, escalated: bool = False, limit: int = 200,
+                mine: bool = False, escalated: bool = False, subject: str | None = None, limit: int = 200,
                 t: Tenant = Depends(staff())) -> list[dict]:
+    """subject: pregnancy | child | all (default all)."""
     db = t.db
-    stmt = (select(Alert).join(Pregnancy, Alert.pregnancy_id == Pregnancy.id)
-            .join(Patient, Pregnancy.patient_id == Patient.id))
-    stmt = t.patients(stmt)
+    stmt = by_subject(t.alerts(select(Alert)), subject)
     if status == "active":
         stmt = stmt.where(Alert.status.in_(ACTIVE))
     elif status:

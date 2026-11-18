@@ -34,8 +34,8 @@ export function AppShell() {
   const nav = useNavigate();
   const staff = !!user && !isAdmin(user.role);
   const { data: summary } = useQuery({
-    queryKey: ["summary"],
-    queryFn: () => api<Summary>("/api/dashboard/summary"),
+    queryKey: ["summary", "all"],
+    queryFn: () => api<Summary>("/api/dashboard/summary?subject=all"),
     refetchInterval: 15000,
     enabled: staff,
   });

@@ -9,11 +9,13 @@ import "./index.css";
 import { AuthProvider, useAuth } from "./lib/auth";
 import { ToastProvider } from "./lib/toast";
 import Alerts from "./pages/Alerts";
+import ChildCard from "./pages/ChildCard";
 import Dashboard from "./pages/Dashboard";
 import GeoDrilldown from "./pages/GeoDrilldown";
 import PolyclinicMap from "./pages/PolyclinicMap";
 import Login from "./pages/Login";
 import { About, Analytics, Audit } from "./pages/Misc";
+import NewChildCheck from "./pages/NewChildCheck";
 import NewVisit from "./pages/NewVisit";
 import PatientCard from "./pages/PatientCard";
 import Patients from "./pages/Patients";
@@ -49,6 +51,8 @@ createRoot(document.getElementById("root")!).render(
                   <Route path="/patients" element={<Patients />} />
                   <Route path="/patients/:id" element={<PatientCard />} />
                   <Route path="/visits/new" element={<NewVisit />} />
+                  <Route path="/children/:id" element={<ChildCard />} />
+                  <Route path="/children/:id/checks/new" element={<NewChildCheck />} />
                   <Route path="/alerts" element={<Alerts />} />
                   <Route path="/analytics" element={<Analytics />} />
                   <Route path="/audit" element={<Audit />} />

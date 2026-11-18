@@ -33,6 +33,31 @@ engine = make_engine()
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
 
+def ensure_columns(eng=None) -> list[str]:
+    """Non-destructive schema upgrade: ADD COLUMN for every mapped column missing in an existing table.
+
+    `create_all` creates missing tables but never alters existing ones; this keeps an older demo DB usable without
+    a reset. New columns are added as nullable (no constraints); a fresh DB (reset_demo) gets the full schema.
+    Returns "table.column" for every column added.
+    """
+    from sqlalchemy import inspect, text
+
+    eng = eng or engine
+    insp = inspect(eng)
+    added: list[str] = []
+    with eng.begin() as conn:
+        for table in Base.metadata.sorted_tables:
+            if not insp.has_table(table.name):
+                continue
+            have = {c["name"] for c in insp.get_columns(table.name)}
+            for col in table.columns:
+                if col.name not in have:
+                    ddl = col.type.compile(dialect=eng.dialect)
+                    conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {ddl}'))
+                    added.append(f"{table.name}.{col.name}")
+    return added
+
+
 def get_db() -> Iterator[Session]:
     db = SessionLocal()
     try:

@@ -4,7 +4,7 @@ from datetime import date, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Alert, Pregnancy, RiskAssessment, Visit, utcnow
+from app.models import Alert, Newborn, Polyclinic, Pregnancy, RiskAssessment, Visit, utcnow
 from app.risk.engine import score_pregnancy
 from app.risk.features import gest_weeks
 from app.risk.rules import ZONE_ORDER
@@ -80,15 +80,22 @@ def store_assessment(db: Session, preg: Pregnancy, visit: Visit, result: dict,
     return ra
 
 
-def create_alert_if_worse(db: Session, preg: Pregnancy, old_zone: str, ra: RiskAssessment,
+def subject_polyclinic(subject: Pregnancy | Newborn) -> Polyclinic:
+    """Tenant polyclinic of an alert subject (a child's is copied from the mother's patient record)."""
+    return subject.patient.polyclinic if isinstance(subject, Pregnancy) else subject.polyclinic
+
+
+def create_alert_if_worse(db: Session, subject: Pregnancy | Newborn, old_zone: str, ra: RiskAssessment,
                           now: datetime | None = None) -> Alert | None:
-    """An alert is created only when the zone gets WORSE (green->yellow, *->red)."""
+    """An alert is created only when the zone gets WORSE (green->yellow, *->red). Subject: pregnancy or child."""
     if ZONE_ORDER[ra.zone] <= ZONE_ORDER[old_zone]:
         return None
     now = now or utcnow()
-    poly = preg.patient.polyclinic
+    poly = subject_polyclinic(subject)
     first = first_assignee(db, poly.id, poly.district_id, ra.zone)
-    alert = Alert(risk_assessment_id=ra.id, pregnancy_id=preg.id, level=ra.zone, status="open",
+    is_preg = isinstance(subject, Pregnancy)
+    alert = Alert(risk_assessment_id=ra.id, pregnancy_id=subject.id if is_preg else None,
+                  newborn_id=None if is_preg else subject.id, level=ra.zone, status="open",
                   assigned_user_id=first.id if first else None, sla_due_at=now + sla_delta(ra.zone), created_at=now)
     db.add(alert)
     db.flush()

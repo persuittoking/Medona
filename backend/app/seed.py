@@ -1,7 +1,7 @@
 """Reset and seed the database with SYNTHETIC demo data (multi-tenant by polyclinic).
 
 Hierarchy: Region -> District -> Polyclinic (tenant) -> Mahalla -> Patients (home point inside the mahalla polygon).
-Each mahalla gets 50-60 active pregnancies + a few recent deliveries. Candidates are scored by the real risk
+Each mahalla gets 50-60 active pregnancies + 15-25 children aged 0-12 months (each linked to a delivered mother). Candidates are scored by the real risk
 engine and kept by zone quota (ZONE_MIX), so every register shows a realistic green/yellow/red mix.
 Usage (from backend/):  .venv\\Scripts\\python -m app.seed [--seed 7]
 """
@@ -32,11 +32,22 @@ from app.models import (
     Visit,
     utcnow,
 )
+from app.risk import thresholds as T
 from app.risk.engine import score_pregnancy
-from app.risk.newborn import newborn_hits, newborn_zone
+from app.risk.infant import score_infant, wfa_ref, wfa_z
 from app.security.auth import hash_password
 from app.security.crypto import encrypt
 from app.services.alerts import record_event
+from app.services.children import (
+    apply_child_assessment,
+    check_dict,
+    check_extras,
+    child_dict,
+    make_child,
+    mother_red_3rd_trimester,
+    refresh_status,
+    store_child_assessment,
+)
 from app.services.geo import encrypt_home, sample_points, validate_home
 from app.services.scoring import (
     apply_assessment,
@@ -52,7 +63,7 @@ from seed.fetch_mahallas import load as load_boundary
 DEMO_PASSWORD = "demo1234"
 # Realistic size of one mahalla's antenatal register (one mahalla per demo polyclinic).
 ACTIVE_PER_MAHALLA = (50, 60)    # active pregnancies, inclusive range
-NEWBORNS_PER_MAHALLA = (2, 4)    # recently delivered (mother + newborn), inclusive range
+CHILDREN_PER_MAHALLA = (15, 25)  # children 0-12 months (each with a delivered mother), inclusive range
 DEMO_ACTIVE_ZONES = {"yellow": 2, "green": 1}  # DEMO1-2 yellow, DEMO3 green (PL-NUK-001); DEMO4 is delivered
 # Demo register zone mix (product target for a realistic-looking dashboard, NOT an epidemiological estimate):
 # each mahalla's quota is drawn inside these bands and candidates are accepted by their computed zone.
@@ -134,6 +145,28 @@ def _add_pregnancy(db, pat: Patient, preg: dict, status: str = "active") -> Preg
     return pr
 
 
+def _settle_alert(db, rng, alert: Alert | None, at: datetime, days_ago: int, actions: list[str],
+                  keep_open: bool = False) -> None:
+    """Older alerts were handled (resolved); recent ones are open or acknowledged (50/50) — demo realism."""
+    if alert is None or keep_open:
+        return
+    if days_ago > 2:
+        alert.acknowledged_at = at + timedelta(minutes=int(rng.integers(15, 240)))
+        alert.status = "resolved"
+        alert.resolved_at = alert.acknowledged_at
+        alert.action_taken = str(rng.choice(actions))
+        record_event(db, alert, "acknowledged", assignee_id=alert.assigned_user_id,
+                     actor_id=alert.assigned_user_id, at=alert.acknowledged_at)
+        record_event(db, alert, "resolved", assignee_id=alert.assigned_user_id,
+                     actor_id=alert.assigned_user_id, note=alert.action_taken, at=alert.resolved_at)
+    elif rng.random() < 0.5:
+        alert.acknowledged_at = at + timedelta(minutes=int(rng.integers(10, 90)))
+        alert.status = "acknowledged"
+        alert.action_taken = str(rng.choice(actions))
+        record_event(db, alert, "acknowledged", assignee_id=alert.assigned_user_id,
+                     actor_id=alert.assigned_user_id, note=alert.action_taken, at=alert.acknowledged_at)
+
+
 def _score_history(db, rng, pr: Pregnancy, visits: list[dict], nurse: User | None, today: date) -> None:
     """Insert visits chronologically, scoring each one as if entered on that day."""
     zone, probs, hist = "green", [], []
@@ -149,21 +182,7 @@ def _score_history(db, rng, pr: Pregnancy, visits: list[dict], nurse: User | Non
         at = min(at, utcnow() - timedelta(minutes=5))  # never in the future
         ra = store_assessment(db, pr, row, res, created_at=at)
         alert = create_alert_if_worse(db, pr, zone, ra, now=at)
-        if alert is not None and (today - v["visit_date"]).days > 2:
-            alert.acknowledged_at = at + timedelta(minutes=int(rng.integers(15, 240)))
-            alert.status = "resolved"
-            alert.resolved_at = alert.acknowledged_at
-            alert.action_taken = str(rng.choice(ACTIONS))
-            record_event(db, alert, "acknowledged", assignee_id=alert.assigned_user_id,
-                         actor_id=alert.assigned_user_id, at=alert.acknowledged_at)
-            record_event(db, alert, "resolved", assignee_id=alert.assigned_user_id,
-                         actor_id=alert.assigned_user_id, note=alert.action_taken, at=alert.resolved_at)
-        elif alert is not None and rng.random() < 0.5:
-            alert.acknowledged_at = at + timedelta(minutes=int(rng.integers(10, 90)))
-            alert.status = "acknowledged"
-            alert.action_taken = str(rng.choice(ACTIONS))
-            record_event(db, alert, "acknowledged", assignee_id=alert.assigned_user_id,
-                         actor_id=alert.assigned_user_id, note=alert.action_taken, at=alert.acknowledged_at)
+        _settle_alert(db, rng, alert, at, (today - v["visit_date"]).days, ACTIONS)
         zone = ra.zone
         probs.append(ra.ml_probability)
         apply_assessment(pr, ra)
@@ -233,8 +252,30 @@ def _demo_patients(db, rng, t: Tenant, today: date) -> None:
     _, p4, lmp = base("QQR-NUK-DEMO4", "Shahnoza Ergasheva", 23, 39.5)
     p4.status, p4.current_zone = "delivered", "yellow"
     _score_history(db, rng, p4, [v(lmp, 11.0, 112, 70, 116, 58.0), v(lmp, 30.0, 120, 78, 108, 66.0)], nurse, today)
-    _add_newborn(db, p4, today - timedelta(days=4), 36.0, 2150, 8,
-                 {"check_date": today - timedelta(days=1), "resp_rate": 64, "temperature_c": 36.9, "weight_g": 2080})
+    b4 = today - timedelta(days=4)
+    _seed_child(db, rng, t, p4, today, b4, 36.0, 2150, 8, "f", [
+        {"check_date": b4 + timedelta(days=1), "resp_rate": 52, "temperature_c": 36.8, "weight_g": 2110,
+         "feeding": "exclusive_breast", "vaccines_given": ["HepB-0"]},
+        {"check_date": today - timedelta(days=1), "resp_rate": 64, "temperature_c": 36.9, "weight_g": 2080,
+         "feeding": "exclusive_breast", "vaccines_given": ["BCG", "OPV-0"]},
+    ], keep_open=True)
+
+    # DEMO5 — healthy boy, ~4 months, all checks normal and vaccines on time -> GREEN.
+    # Live demo ("Bolalar"): new check with breathing 56/min -> RED by I05 (>= 50/min from 2 months; the same 56/min
+    # would NOT be fast breathing under 2 months, where the limit is 60).
+    _, p5, lmp5 = base("QQR-NUK-DEMO5", "Zarina Qodirova", 25, 39.0 + 125 / 7, gravidity=2, parity=1,
+                       interpregnancy_months=36)
+    p5.status = "delivered"
+    _score_history(db, rng, p5, [v(lmp5, 11.0, 110, 70, 124, 58.0), v(lmp5, 24.0, 112, 72, 120, 63.0),
+                                 v(lmp5, 36.0, 114, 72, 118, 68.0)], nurse, today)
+    b5 = today - timedelta(days=125)
+    rows5, given = [], []
+    for d, wt in ((3, 3350), (14, 3900), (30, 4700), (61, 5650), (91, 6450), (122, 7050)):
+        doses = [c for c, _, due in T.VACCINE_SCHEDULE if due <= d and c not in given]
+        given += doses
+        rows5.append({"check_date": b5 + timedelta(days=d), "weight_g": wt, "resp_rate": 46 if d < 60 else 38,
+                      "temperature_c": 36.7, "feeding": "exclusive_breast", "vaccines_given": doses})
+    _seed_child(db, rng, t, p5, today, b5, 39.3, 3450, 9, "m", rows5)
 
 
 # Trend-only demo patients (per polyclinic): a clear 3-checkup trend while the last visit is still below every
@@ -285,26 +326,135 @@ def _trend_demo_patients(db, rng, t: Tenant, today: date) -> None:
         (24.0, 108, 68, 113, 62.0), (28.0, 110, 70, 104, 64.0)])
 
 
-def _add_newborn(db, pr: Pregnancy, birth: date, ga: float, bw: int, apgar: int, check: dict | None) -> Newborn:
-    nb = Newborn(pregnancy_id=pr.id, birth_date=birth, gestational_weeks_at_birth=ga, birth_weight_g=bw, apgar_5=apgar)
-    db.add(nb)
-    db.flush()
-    ck = None
-    if check:
-        ck = NewbornCheck(newborn_id=nb.id, **check)
-        db.add(ck)
-        db.flush()
-    mother_red = any(a.zone == "red" for a in db.query(RiskAssessment).filter_by(pregnancy_id=pr.id))
-    nb_dict = {"birth_weight_g": bw, "gestational_weeks_at_birth": ga, "apgar_5": apgar, "birth_date": birth}
-    ck_dict = {k: getattr(ck, k) for k in ("not_feeding_well", "convulsions", "resp_rate", "severe_chest_indrawing",
-                                           "temperature_c", "movement_only_when_stimulated", "jaundice_first_24h",
-                                           "jaundice_palms_soles")} if ck else None
-    hits = newborn_hits(nb_dict, ck_dict, mother_red_3rd_trimester=mother_red, today=date.today())
-    nb.current_zone = newborn_zone(hits)
-    db.add(RiskAssessment(newborn_id=nb.id, check_id=ck.id if ck else None, zone=nb.current_zone, rule_hits=hits,
-                          trend_hits=[], notes=[], shap_top=[],
-                          explanation_uz="Chaqaloq: " + ("; ".join(h["uz_text"] for h in hits) or "xavf belgilari yo'q")))
+# ---------------- children 0-12 months ----------------
+CHILD_ACTIONS = [
+    "Ona bilan telefon orqali bog'lanildi, bola pediatr ko'rigiga chaqirildi",
+    "Patronaj hamshirasi bolani uyda ko'rdi, emizish bo'yicha maslahat berildi",
+    "Bola bolalar shifoxonasiga yo'llandi",
+    "Kechikkan emlashlar uchun emlash xonasiga yozildi",
+    "Vazn 7 kun ichida qayta o'lchanadi",
+]
+CHECK_DAYS = [1, 3, 7, 14, 30, 61, 91, 122, 152, 183, 213, 244, 274, 305, 335]
+# Demo profile mix of the synthetic children (NOT epidemiology): most follow a normal growth curve.
+CHILD_PROFILES = {"normal": 0.71, "falter": 0.07, "acute": 0.04, "stale": 0.07, "vaccine_miss": 0.05, "mixed_feed": 0.06}
+
+
+def _child_check_rows(nb_birth: date, sex: str, bw: int, today: date, rng, profile: str) -> list[dict]:
+    """Synthetic infant checks: WHO-curve weight with a child-specific z-track, profile-specific problems."""
+    age = (today - nb_birth).days
+    days = []
+    for d in CHECK_DAYS:
+        d = d + (int(rng.integers(-3, 4)) if d > 14 else 0)
+        if d <= age and (not days or d - days[-1] >= 2):
+            days.append(d)
+    if profile == "stale" and age > 75:
+        cut = age - int(rng.integers(40, 60))
+        days = [d for d in days if d <= cut] or days[:2]
+    days = days[-6:]
+    z_birth = float(np.clip(wfa_z(sex, 0, bw / 1000), -2.5, 2.5))
+    z_track = float(np.clip(rng.normal(0.0, 0.55), -1.4, 1.6))
+    rows, zs = [], []
+    for i, d in enumerate(days):
+        z = z_track + (z_birth - z_track) * np.exp(-d / 45) + float(rng.normal(0, 0.06))
+        if d <= 7:  # physiological weight loss in the first week
+            z -= 0.35
+        zs.append(z)
+        med, sd = wfa_ref(sex, d / 30.4375)
+        w = med + z * sd
+        last = i == len(days) - 1
+        if profile == "falter" and last and len(rows) >= 2 and d - days[i - 1] >= 7:
+            if rng.random() < 0.7:  # G01: z-score falls
+                w = med + (zs[i - 1] - float(rng.uniform(0.75, 1.0))) * sd
+            else:  # G02: weight stops increasing at two checks
+                rows[-1]["weight_g"] = rows[-2]["weight_g"] + int(rng.integers(-60, 20))
+                w = (rows[-1]["weight_g"] - int(rng.integers(0, 80))) / 1000
+        m = d / 30.4375
+        young = d < 60
+        rows.append({
+            "check_date": nb_birth + timedelta(days=d), "weight_g": int(round(w * 1000)),
+            "length_cm": round(49.5 + 3.6 * min(m, 3) + 1.6 * max(0.0, min(m, 6) - 3) + 1.1 * max(0.0, m - 6)
+                               + float(rng.normal(0, 0.6)), 1),
+            "head_circ_cm": round(34.3 + 1.9 * min(m, 3) + 0.8 * max(0.0, min(m, 6) - 3) + 0.4 * max(0.0, m - 6)
+                                  + float(rng.normal(0, 0.4)), 1),
+            "resp_rate": int(rng.integers(38, 56) if young else rng.integers(28, 44)),
+            "temperature_c": round(float(rng.normal(36.7, 0.2)), 1),
+            "feeding": ("complementary" if d >= 183 else
+                        ("mixed" if profile == "mixed_feed" else ("exclusive_breast" if rng.random() < 0.96 else "mixed"))),
+            "vaccines_given": [], "diarrhoea_days": None, "cough_days": None,
+        })
+    # vaccines: due doses are given at the first check on/after their due day (vaccine_miss: the 2-month doses not)
+    given: set[str] = set()
+    for r in rows:
+        d = (r["check_date"] - nb_birth).days
+        for code, _, due in T.VACCINE_SCHEDULE:
+            skip = profile == "vaccine_miss" and due == 61
+            if due <= d and code not in given and not skip and rng.random() < 0.97:
+                r["vaccines_given"].append(code)
+                given.add(code)
+    if profile == "acute" and rows:
+        last, d = rows[-1], (rows[-1]["check_date"] - nb_birth).days
+        sign = str(rng.choice(["breathing", "diarrhoea", "blood", "vomiting", "fever" if d < 60 else "breathing"]))
+        if sign == "breathing":
+            last["resp_rate"] = (T.INF_RESP_FAST_UNDER_2M if d < 60 else T.INF_RESP_FAST_2_12M) + int(rng.integers(2, 9))
+            last["cough_days"] = int(rng.integers(2, 6))
+        elif sign == "diarrhoea":
+            last["diarrhoea_days"] = int(rng.integers(14, 19))
+        elif sign == "blood":
+            last["blood_in_stool"], last["diarrhoea_days"] = True, int(rng.integers(2, 5))
+        elif sign == "vomiting":
+            last["vomiting_everything"] = True
+        else:
+            last["temperature_c"] = round(float(rng.uniform(38.1, 38.8)), 1)
+    return rows
+
+
+def _seed_child(db, rng, t: Tenant, pr: Pregnancy, today: date, birth: date, ga: float, bw: int, apgar: int,
+                sex: str, checks: list[dict], keep_open: bool = False) -> Newborn:
+    """Register a child and score each check as if entered on that day (the last one as of today)."""
+    nb = make_child(db, pr, birth_date=birth, ga=ga, birth_weight_g=bw, apgar_5=apgar, sex=sex)
+    mother_red = mother_red_3rd_trimester(db, pr.id)
+    nurse = t.users["nurse"]
+    zone, prior = "green", []
+    for i, ck in enumerate(checks or [None]):
+        last = i == len(checks) - 1 or not checks
+        row = None
+        if ck is not None:
+            row = NewbornCheck(newborn_id=nb.id, entered_by=nurse.id, **ck, **check_extras(nb, ck, prior))
+            db.add(row)
+            db.flush()
+            prior.append(row)
+        on = today if last else ck["check_date"]
+        res = score_infant(child_dict(nb), [check_dict(c) for c in prior], today=on,
+                           mother_red_3rd_trimester=mother_red)
+        day = ck["check_date"] if ck is not None else today
+        at = datetime.combine(day, datetime.min.time()) + timedelta(hours=5, minutes=int(rng.integers(0, 300)))
+        if last and (today - day).days > T.INF_CHECK_INTERVAL_DAYS:
+            at = datetime.combine(today, datetime.min.time())  # the "no check for > 30 days" sign is from today
+        at = min(at, utcnow() - timedelta(minutes=5))
+        ra = store_child_assessment(db, nb, row, res, created_at=at)
+        alert = create_alert_if_worse(db, nb, zone, ra, now=at)
+        _settle_alert(db, rng, alert, at, (today - day).days, CHILD_ACTIONS, keep_open=keep_open and last)
+        zone = ra.zone
+        apply_child_assessment(nb, ra)
+    refresh_status(nb, today)
     return nb
+
+
+def _random_child(db, rng, t: Tenant, today: date) -> None:
+    """A delivered mother (full synthetic antenatal history) + her child aged 4-364 days."""
+    age = int(rng.integers(4, 365))
+    birth = today - timedelta(days=age)
+    cand = _draw_candidate(rng, t, birth, delivered=True)
+    p, preg, visits, cur_w = cand
+    pat = t.add_patient(db, p)
+    pr = _add_pregnancy(db, pat, preg, status="delivered")
+    _score_history(db, rng, pr, visits, t.users["nurse"], today)
+    ga = round(min(cur_w, 41.0), 1) if rng.random() > 0.08 else round(float(rng.uniform(33.0, 36.9)), 1)
+    bw = int(np.clip(rng.normal(3300 - max(0, 39 - ga) * 220, 400), 1600, 4600))
+    sex = "m" if rng.random() < 0.51 else "f"
+    profile = str(rng.choice(list(CHILD_PROFILES), p=list(CHILD_PROFILES.values())))
+    _seed_child(db, rng, t, pr, today, birth, ga, bw, int(rng.integers(7, 10)), sex,
+                _child_check_rows(birth, sex, bw, today, rng, profile))
 
 
 def _final_zone(preg: dict, visits: list[dict]) -> str:
@@ -341,14 +491,6 @@ def _insert_pregnancy(db, rng, t: Tenant, today: date, cand: tuple, delivered: b
     pat = t.add_patient(db, p)
     pr = _add_pregnancy(db, pat, preg, status="delivered" if delivered else "active")
     _score_history(db, rng, pr, visits, t.users["nurse"], today)
-    if delivered:
-        ga = round(min(cur_w, 41.0), 1)
-        bw = int(np.clip(rng.normal(3300 - max(0, 39 - ga) * 220, 420), 1200, 4800))
-        ck = {"check_date": today - timedelta(days=int(rng.integers(0, 3))), "resp_rate": int(rng.integers(36, 58)),
-              "temperature_c": round(float(rng.normal(36.8, 0.25)), 1), "weight_g": bw - 80,
-              "jaundice_palms_soles": bool(rng.random() < 0.04), "not_feeding_well": bool(rng.random() < 0.04)}
-        _add_newborn(db, pr, today - timedelta(days=int(rng.integers(1, 20))), ga, bw,
-                     int(rng.integers(6, 10)), ck if rng.random() < 0.85 else None)
 
 
 def zone_quotas(rng, n_active: int) -> dict[str, int]:
@@ -392,7 +534,8 @@ def reset_schema() -> None:
     Base.metadata.create_all(engine)
 
 
-def seed(seed_value: int = 7, active_per_mahalla: tuple[int, int] = ACTIVE_PER_MAHALLA) -> dict:
+def seed(seed_value: int = 7, active_per_mahalla: tuple[int, int] = ACTIVE_PER_MAHALLA,
+         children_per_mahalla: tuple[int, int] = CHILDREN_PER_MAHALLA) -> dict:
     """Reset the DB and seed it. Tests pass a smaller `active_per_mahalla` for speed."""
     t0 = time.time()
     rng = np.random.default_rng(seed_value)
@@ -429,8 +572,8 @@ def seed(seed_value: int = 7, active_per_mahalla: tuple[int, int] = ACTIVE_PER_M
                 quotas[z] = max(0, quotas[z] - k)
             _fill_register(db, rng, t, today, quotas)
             _trend_demo_patients(db, rng, t, today)
-            for _ in range(int(rng.integers(NEWBORNS_PER_MAHALLA[0], NEWBORNS_PER_MAHALLA[1] + 1))):
-                _insert_pregnancy(db, rng, t, today, _draw_candidate(rng, t, today, delivered=True), delivered=True)
+            for _ in range(int(rng.integers(children_per_mahalla[0], children_per_mahalla[1] + 1))):
+                _random_child(db, rng, t, today)
 
         _demo_patients(db, rng, tenants["PL-NUK-001"], today)
         db.commit()
@@ -448,6 +591,8 @@ def seed(seed_value: int = 7, active_per_mahalla: tuple[int, int] = ACTIVE_PER_M
             t.pdef["code"]: {z: db.query(Pregnancy).join(Patient).filter(
                 Pregnancy.status == "active", Pregnancy.current_zone == z, Patient.polyclinic_id == t.polyclinic.id).count()
                 for z in ("green", "yellow", "red")} for t in tenants.values()}
+        stats["child_zones"] = {z: db.query(Newborn).filter_by(status="active", current_zone=z).count()
+                                for z in ("red", "yellow", "green")}
     stats["active_zones"] = zones
     stats["seconds"] = round(time.time() - t0, 1)
     return stats

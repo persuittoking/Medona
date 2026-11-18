@@ -17,9 +17,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.models import Alert, AuditLog, Patient, Pregnancy, User, utcnow
+from app.models import Alert, AuditLog, User, utcnow
 from app.risk.engine import ZONE_UZ
-from app.risk.features import gest_weeks
 
 log = logging.getLogger("onaradar.notify")
 
@@ -73,11 +72,13 @@ def _minutes_left(due: datetime) -> int:
 
 
 def alert_text(db: Session, alert: Alert, headline: str) -> str:
-    preg = alert.pregnancy
-    code = preg.patient.code if preg else "—"
-    gw = gest_weeks(preg.lmp_date, alert.created_at.date()) if preg else None
+    from app.services.alerts import subject_info  # lazy: alerts -> notify cycle
+
+    subj = subject_info(alert)
+    label = "Bola kodi" if subj["subject"] == "child" else "Bemor kodi"
+    detail = subj["subject_label"].split(" · ", 1)[-1]
     lines = [f"{LEVEL_ICON.get(alert.level, '')} {headline}",
-             f"Bemor kodi: {code}" + (f" · {gw:g} hafta" if gw is not None else ""),
+             f"{label}: {subj['code']} · {detail}",
              f"Zona: {ZONE_UZ.get(alert.level, alert.level)}"]
     lines += [f"• {b}" for b in _bullets(db, alert)]
     lines.append(f"Javob berish uchun qoldi: {_minutes_left(alert.sla_due_at)} daqiqa")
@@ -102,13 +103,13 @@ def notify_reassigned(db: Session, alert: Alert, assignee: User | None) -> str:
 
 def notify_admin_count(db: Session, alert: Alert, admin: User | None) -> str:
     """District admin: aggregate count only — no patient code, no clinical details."""
-    pc_id = alert.pregnancy.patient.polyclinic_id
-    open_red = db.scalar(select(func.count()).select_from(Alert)
-                         .join(Pregnancy, Alert.pregnancy_id == Pregnancy.id)
-                         .join(Patient, Pregnancy.patient_id == Patient.id)
-                         .where(Patient.polyclinic_id == pc_id, Alert.level == "red",
-                                Alert.status.in_(("open", "escalated")), Alert.escalation_level >= 2)) or 0
-    text = (f"⚠️ {alert.pregnancy.patient.polyclinic.code}: {ZONE_UZ.get(alert.level, alert.level)} ogohlantirish "
+    from app.services.alerts import alert_polyclinic, polyclinic_alerts  # lazy: alerts -> notify cycle
+
+    pc = alert_polyclinic(alert)
+    open_red = db.scalar(polyclinic_alerts(select(func.count()).select_from(Alert), pc.id)
+                         .where(Alert.level == "red", Alert.status.in_(("open", "escalated")),
+                                Alert.escalation_level >= 2)) or 0
+    text = (f"⚠️ {pc.code}: {ZONE_UZ.get(alert.level, alert.level)} ogohlantirish "
             f"belgilangan muddatda qabul qilinmadi ({alert.escalation_level}-daraja eskalatsiya). "
             f"Poliklinikada hozir shunday ogohlantirishlar soni: {open_red} ta. Bemor ma'lumotlari yuborilmaydi.")
     return notify_user(db, admin, text, alert.id, "admin_count")

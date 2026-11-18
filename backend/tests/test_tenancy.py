@@ -71,10 +71,13 @@ def test_lists_never_contain_other_tenants(client):
     for code, prefix in [(NUK, "QQR-NUK-"), (CHL, "TSH-CHL-"), (FRG, "FAR-FRG-")]:
         h = login(client, code, "doctor")
         assert all(r["code"].startswith(prefix) for r in client.get("/api/patients", headers=h).json())
-        assert all(a["patient_code"].startswith(prefix) for a in client.get("/api/alerts", headers=h).json())
+        assert all(a["patient_code"].removeprefix("B-").startswith(prefix) for a in client.get("/api/alerts", headers=h).json())
         assert all(r["code"].startswith(prefix) for r in client.get("/api/dashboard/top", headers=h).json())
         m = client.get("/api/polyclinic/map", headers=h).json()
-        assert m["polyclinic"]["code"] == code and all(p["code"].startswith(prefix) for p in m["points"])
+        assert m["polyclinic"]["code"] == code and all(p["code"].removeprefix("B-").startswith(prefix) for p in m["points"])
+        assert all(r["code"].startswith("B-" + prefix) for r in client.get("/api/children", headers=h).json())
+        top = client.get("/api/dashboard/top?subject=all", headers=h).json()
+        assert all(r["code"].removeprefix("B-").startswith(prefix) for r in top)
 
 
 def test_unknown_id_and_other_tenant_look_the_same(client):
@@ -91,6 +94,6 @@ def test_dependency_is_used_by_every_patient_router():
     from pathlib import Path
 
     api = Path(__file__).resolve().parent.parent / "app" / "api"
-    for name in ("patients.py", "visits.py", "alerts.py", "llm.py"):
+    for name in ("patients.py", "visits.py", "alerts.py", "llm.py", "children.py"):
         src = (api / name).read_text(encoding="utf-8")
         assert "staff(" in src and "current_user" not in src, name

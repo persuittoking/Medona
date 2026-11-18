@@ -1,10 +1,18 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api/client";
-import type { Crumb, GeoLevel, GeoNode, GeoPolyclinic } from "../api/types";
+import type { Crumb, GeoLevel, GeoNode, GeoPolyclinic, Subject, SubjectCounts } from "../api/types";
+import { SubjectSwitch } from "../components/SubjectSwitch";
 import { CircleMap, MahallaMap, shareColor } from "../components/MahallaMap";
 import { ErrorBox, Skeleton } from "../components/ui";
 import { fmtPct } from "../lib/format";
+import { useSubject } from "../lib/subject";
+
+const TOTAL_LABEL: Record<Subject, string> = { pregnancy: "Faol homiladorlar", child: "Kuzatuvdagi bolalar", all: "Jami kuzatuvda" };
+
+function Header({ subject, onChange, counts }: { subject: Subject; onChange: (s: Subject) => void; counts?: SubjectCounts }) {
+  return <SubjectSwitch value={subject} onChange={onChange} counts={counts} />;
+}
 import { Kpi } from "./Dashboard";
 
 const CHILD_ROUTE: Record<string, string> = { country: "region", region: "district", district: "polyclinic" };
@@ -77,9 +85,9 @@ function ChildrenTable({ level, nodes }: { level: string; nodes: GeoNode[] }) {
   );
 }
 
-function LevelView({ path }: { path: string }) {
+function LevelView({ path, subject, setSubject }: { path: string; subject: Subject; setSubject: (s: Subject) => void }) {
   const nav = useNavigate();
-  const q = useQuery({ queryKey: ["geo", path], queryFn: () => api<GeoLevel>(path) });
+  const q = useQuery({ queryKey: ["geo", path, subject], queryFn: () => api<GeoLevel>(`${path}?subject=${subject}`) });
   if (q.error) return <ErrorBox error={q.error} />;
   if (!q.data) return <Skeleton className="h-[500px]" />;
   const d = q.data;
@@ -88,9 +96,12 @@ function LevelView({ path }: { path: string }) {
 
   return (
     <div className="space-y-6">
-      <div>
-        <Breadcrumb items={d.breadcrumb ?? []} current={d.name} />
-        <h1 className="mt-2">{d.name}</h1>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <Breadcrumb items={d.breadcrumb ?? []} current={d.name} />
+          <h1 className="mt-2">{d.name}</h1>
+        </div>
+        <Header subject={subject} onChange={setSubject} counts={d.subject_counts} />
       </div>
       {d.level === "district" && withTerritory.length ? (
         <MahallaMap height={460} dimOutside={false} legend={false}
@@ -107,20 +118,23 @@ function LevelView({ path }: { path: string }) {
   );
 }
 
-function PolyclinicView({ id }: { id: string }) {
-  const q = useQuery({ queryKey: ["geo-pc", id], queryFn: () => api<GeoPolyclinic>(`/api/geo/polyclinics/${id}`) });
+function PolyclinicView({ id, subject, setSubject }: { id: string; subject: Subject; setSubject: (s: Subject) => void }) {
+  const q = useQuery({ queryKey: ["geo-pc", id, subject], queryFn: () => api<GeoPolyclinic>(`/api/geo/polyclinics/${id}?subject=${subject}`) });
   if (q.error) return <ErrorBox error={q.error} />;
   if (!q.data) return <Skeleton className="h-[500px]" />;
   const d = q.data;
   return (
     <div className="space-y-6">
-      <div>
-        <Breadcrumb items={d.breadcrumb} current={d.code} />
-        <h1 className="mt-2">{d.name}</h1>
-        <p className="mt-1 text-sm text-slate-500">Xizmat hududi: {d.territory.map((t) => t.name).join(", ")}</p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <Breadcrumb items={d.breadcrumb} current={d.code} />
+          <h1 className="mt-2">{d.name}</h1>
+          <p className="mt-1 text-sm text-slate-500">Xizmat hududi: {d.territory.map((t) => t.name).join(", ")}</p>
+        </div>
+        <Header subject={subject} onChange={setSubject} counts={d.subject_counts} />
       </div>
       <div className="grid grid-cols-2 gap-4 md:grid-cols-6">
-        <Kpi label="Faol homiladorlar" value={d.total} />
+        <Kpi label={TOTAL_LABEL[subject]} value={d.total} />
         <Kpi label="Qizil" value={d.red} tone="text-zred" />
         <Kpi label="Sariq" value={d.yellow} tone="text-amber-600" />
         <Kpi label="Yashil" value={d.green} tone="text-zgreen" />
@@ -136,7 +150,8 @@ function PolyclinicView({ id }: { id: string }) {
 
 export default function GeoDrilldown() {
   const { level, id } = useParams();
-  if (level === "polyclinic" && id) return <PolyclinicView id={id} />;
+  const [subject, setSubject] = useSubject();
+  if (level === "polyclinic" && id) return <PolyclinicView id={id} subject={subject} setSubject={setSubject} />;
   const path = level === "region" ? `/api/geo/regions/${id}` : level === "district" ? `/api/geo/districts/${id}` : "/api/geo/country";
-  return <LevelView key={path} path={path} />;
+  return <LevelView key={path} path={path} subject={subject} setSubject={setSubject} />;
 }

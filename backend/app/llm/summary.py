@@ -52,6 +52,9 @@ Katalogda yo'q harakatni taklif qilmang.
   3) keyingi qadam — FAQAT katalogdagi harakat (recommended_action_codes dagi birinchisi).
   Bandlarda ism, telefon, JShShIR, manzil bo'lmasin; "tashxis" so'zini ishlatmang.
 - Berilmagan ma'lumotni o'ylab topmang.
+- Agar "subject" = "child" bo'lsa: bu 0-12 oylik bola (bolaning taxallusli kodi beriladi). Bandlarda yoshini oyda \
+yozing (masalan "Vazn 5.1 → 5.2 kg (3-4 oy)"), homiladorlik haftasini emas. Bola uchun ML modeli ishlatilmaydi — faqat \
+klinik qoidalar (N, I kodlari) va o'sish trendlari (G kodlari). Savollar onaga beriladi.
 
 Harakatlar katalogi:
 {json.dumps(ACTIONS, ensure_ascii=False, indent=0)}
@@ -107,6 +110,36 @@ def build_llm_input(patient_code: str, birth_date: date, preg: dict, visits: lis
                        for h in assessment.get("trend_hits", [])],
         "shap_top": [{"feature": s["feature"], "label": s["uz_label"], "direction": s["direction"]}
                      for s in assessment.get("shap_top", [])],
+    }
+
+
+# Child (0-12 months) allow-list: only these check keys may appear in the LLM input — no dates, notes or names.
+CHILD_CHECK_KEYS = ["weight_g", "length_cm", "head_circ_cm", "resp_rate", "temperature_c", "feeding",
+                    "not_feeding_well", "vomiting_everything", "convulsions", "lethargic", "severe_chest_indrawing",
+                    "blood_in_stool", "diarrhoea_days", "cough_days", "vaccines_due_overdue"]
+CHILD_SERIES_KEYS = ("param", "values", "ages_months", "direction", "unit")
+
+
+def build_child_llm_input(child_code: str, birth_date: date, sex: str | None, checks: list[dict], assessment: dict,
+                          today: date | None = None) -> dict:
+    """De-identified child payload: age in months, sex, the last 3 checks' values, hits. Allow-list only."""
+    from app.risk.infant import age_months
+
+    today = today or date.today()
+    return {
+        "subject": "child",
+        "patient_code": child_code,
+        "age_months": age_months(birth_date, today),
+        "sex": {"m": "o'g'il", "f": "qiz"}.get(sex or ""),
+        "last_checks": [{"age_months": age_months(birth_date, c["check_date"]), **{k: c.get(k) for k in CHILD_CHECK_KEYS}}
+                        for c in checks[-3:]],
+        "zone": assessment["zone"],
+        "ml_probability": None,
+        "rule_hits": [{"code": h["code"], "zone": h["zone"], "text": h["uz_text"]} for h in assessment.get("rule_hits", [])],
+        "trend_hits": [{"code": h["code"], "zone": h.get("zone", "yellow"), "text": h["uz_text"],
+                        **{k: h[k] for k in CHILD_SERIES_KEYS if h.get(k) is not None}}
+                       for h in assessment.get("trend_hits", [])],
+        "shap_top": [],
     }
 
 
@@ -176,8 +209,56 @@ def _template_bullets(payload: dict, hits: list[dict], codes: list[str]) -> list
     return [clip(why), _numbers_bullet(payload), next_step_bullet(codes)]
 
 
+def _child_numbers_bullet(payload: dict) -> str:
+    """Child bullet 2: weight series by age in months, + breathing / temperature / overdue vaccines."""
+    vis = payload["last_checks"]
+    parts = []
+    wt = [(v["weight_g"], v["age_months"]) for v in vis if v.get("weight_g")]
+    if wt:
+        span = f" ({wt[0][1]:g}–{wt[-1][1]:g} oy)" if len(wt) > 1 else f" ({wt[0][1]:g} oy)"
+        parts.append("Vazn " + " → ".join(f"{w / 1000:g}" for w, _ in wt) + " kg" + span)
+    last = vis[-1] if vis else {}
+    if last.get("resp_rate") is not None:
+        parts.append(f"nafas {last['resp_rate']}/daq")
+    if last.get("temperature_c") is not None:
+        parts.append(f"harorat {last['temperature_c']:g}°C")
+    if last.get("vaccines_due_overdue"):
+        parts.append("kechikkan emlash: " + ", ".join(last["vaccines_due_overdue"][:3]))
+    return clip("; ".join(parts) or f"Oxirgi ko'rik ko'rsatkichlari me'yorda ({payload['age_months']:g} oy)")
+
+
+def child_template_summary(payload: dict) -> dict:
+    """Deterministic child fallback (no network): hits + rule->action table, ages in months."""
+    hits = payload["rule_hits"] + payload["trend_hits"]
+    zone = payload["zone"]
+    sex = f", {payload['sex']}" if payload.get("sex") else ""
+    s = [f"{payload['patient_code']}: bola {payload['age_months']:g} oylik{sex}, hozirgi zona — {ZONE_UZ[zone]}."]
+    s.append("Asosiy xavf belgilari: " + "; ".join(h["text"] for h in hits[:3]) + "." if hits
+             else "Klinik qoidalar va o'sish trendlari bo'yicha xavf belgilari aniqlanmadi.")
+    s.append("Bolalar uchun faqat klinik qoidalar va trendlar ishlatiladi (ML modeli qo'llanilmaydi).")
+    s.append("Rejali kuzatuvni davom ettirish tavsiya etiladi." if zone == "green"
+             else "Holat pediatr / mutaxassis tomonidan ko'rib chiqilishi kerak.")
+    codes: list[str] = []
+    for h in sorted(hits, key=lambda h: h.get("zone") != "red"):
+        codes += RULE_ACTIONS.get(h["code"], [])
+    codes = validate_codes(codes or (["A26", "A28"] if zone == "green" else ["A22", "A26"]))
+    main = next((h for h in hits if h.get("zone") == "red"), hits[0] if hits else None)
+    why = f"{ZONE_UZ[zone]} zona: {main['text']}" if main else f"{ZONE_UZ[zone]} zona: xavf belgilari aniqlanmadi"
+    questions = ["Bola emyaptimi / ovqatlanyaptimi, qancha tez-tez?", "Qayt qilish, ich ketishi yoki isitma bormi?"]
+    if any(h["code"] in ("I10", "G01", "G02") for h in hits):
+        questions.append("Kuniga necha marta emizasiz, qo'shimcha suv yoki ovqat beryapsizmi?")
+    if any(h["code"] == "I11" for h in hits):
+        questions.append("Emlashga kelishga nima xalaqit berdi?")
+    out = LlmOutput(summary_uz=" ".join(s), key_concerns=[Concern(code=h["code"], text_uz=h["text"]) for h in hits[:5]],
+                    recommended_action_codes=codes, questions_to_ask_patient_uz=questions,
+                    doctor_bullets_uz=[clip(why), _child_numbers_bullet(payload), next_step_bullet(codes)])
+    return _finalize(out, payload, "template", None)
+
+
 def template_summary(payload: dict) -> dict:
     """Deterministic fallback: no network, built from rule/trend hits + SHAP + rule->action table."""
+    if payload.get("subject") == "child":
+        return child_template_summary(payload)
     # Tier B factors ("factor") go last: they are follow-up notes, not the reason for the zone.
     hits = sorted(payload["rule_hits"] + payload["trend_hits"], key=lambda h: h.get("zone") == "factor")
     zone = payload["zone"]

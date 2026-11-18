@@ -1,6 +1,6 @@
 """TENANT ISOLATION — the single place where patient-level access is decided.
 
-Every patient / pregnancy / visit / alert / AI-summary / home-point query goes through `Tenant`:
+Every patient / pregnancy / visit / child / alert / AI-summary / home-point query goes through `Tenant`:
 - polyclinic staff (nurse, doctor, specialist) see ONLY rows whose Patient.polyclinic_id equals theirs;
 - another tenant's ids return 404 (we do not reveal that the record exists);
 - admin roles (district_admin, region_admin) get 403 on every patient-level endpoint — they only use
@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import current_user
 from app.db import get_db
-from app.models import POLYCLINIC_ROLES, Alert, Patient, Pregnancy, User
+from app.models import POLYCLINIC_ROLES, Alert, Newborn, Patient, Pregnancy, User
 
 NOT_FOUND = "Topilmadi"
 
@@ -41,9 +41,33 @@ class Tenant:
             raise HTTPException(status.HTTP_404_NOT_FOUND, NOT_FOUND)
         return preg
 
+    def children(self, stmt: Select) -> Select:
+        """Restrict a statement over Newborn to this tenant (key copied from the mother's patient record)."""
+        return stmt.where(Newborn.polyclinic_id == self.polyclinic_id)
+
+    def alerts(self, stmt: Select) -> Select:
+        """Restrict a statement over Alert to this tenant, for both subjects (pregnancy and child)."""
+        from app.services.alerts import polyclinic_alerts
+
+        return polyclinic_alerts(stmt, self.polyclinic_id)
+
+    def get_newborn(self, newborn_id: int) -> Newborn:
+        nb = self.db.get(Newborn, newborn_id)
+        if nb is None or nb.polyclinic_id != self.polyclinic_id or nb.pregnancy.patient.polyclinic_id != self.polyclinic_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, NOT_FOUND)
+        return nb
+
     def get_alert(self, alert_id: int) -> Alert:
         a = self.db.get(Alert, alert_id)
-        if a is None or a.pregnancy is None or a.pregnancy.patient.polyclinic_id != self.polyclinic_id:
+        if a is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, NOT_FOUND)
+        if a.pregnancy is not None:
+            ok = a.pregnancy.patient.polyclinic_id == self.polyclinic_id
+        elif a.newborn is not None:
+            ok = a.newborn.polyclinic_id == self.polyclinic_id
+        else:
+            ok = False
+        if not ok:
             raise HTTPException(status.HTTP_404_NOT_FOUND, NOT_FOUND)
         return a
 

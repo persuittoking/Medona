@@ -46,6 +46,43 @@ export const ALERT_EVENT_LABEL: Record<string, string> = {
   admin_notified: "Tuman boshqaruviga xabar berildi (faqat soni)",
 };
 
+export const SUBJECT_LABEL: Record<"pregnancy" | "child" | "all", string> = {
+  pregnancy: "Homiladorlar",
+  child: "Bolalar (0–1 yosh)",
+  all: "Hammasi",
+};
+
+export const SEX_LABEL: Record<string, string> = { m: "O'g'il", f: "Qiz" };
+
+export const FEEDING_LABEL: Record<string, string> = {
+  exclusive_breast: "Faqat ko'krak suti",
+  mixed: "Aralash",
+  formula: "Sun'iy aralashma",
+  complementary: "Qo'shimcha ovqat",
+};
+
+/** Infant danger signs / complaints entered in a child check (boolean fields). */
+export const CHILD_SIGN_LABEL: Record<string, string> = {
+  not_feeding_well: "Emmayapti / ovqatlana olmaydi",
+  vomiting_everything: "Hamma narsani qayt qiladi",
+  convulsions: "Talvasa",
+  lethargic: "Holsiz / hushi xira",
+  movement_only_when_stimulated: "Faqat qo'zg'atilganda harakatlanadi",
+  severe_chest_indrawing: "Ko'krak qafasi kuchli tortiladi",
+  blood_in_stool: "Najasda qon",
+  jaundice_first_24h: "Sariqlik (birinchi 24 soatda)",
+  jaundice_palms_soles: "Sariqlik kaft / tovonda",
+};
+
+export const VACCINE_STATUS_LABEL: Record<string, string> = {
+  given: "Qilingan",
+  overdue: "Kechikkan",
+  due: "Muddati keldi",
+  upcoming: "Rejada",
+};
+
+export const NO_ML_NOTE = "Bolalar uchun faqat klinik qoidalar va trendlar ishlatiladi (ML modeli qo'llanilmaydi).";
+
 export const FINAL_DECISION = "Yakuniy qaror shifokorga tegishli";
 
 export const DISCLAIMER =

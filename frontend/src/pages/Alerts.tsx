@@ -2,12 +2,16 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
-import type { Alert, Role } from "../api/types";
+import type { Alert, Role, Subject } from "../api/types";
+import { SubjectSwitch } from "../components/SubjectSwitch";
 import { Empty, ErrorBox, Skeleton, SourceTag, ZoneBadge } from "../components/ui";
 import { ALERT_EVENT_LABEL, ALERT_STATUS_LABEL, FINAL_DECISION, ROLE_LABEL } from "../i18n/uz";
 import { useAuth } from "../lib/auth";
 import { useToast } from "../lib/toast";
-import { fmtDateTime, fmtWeeks, parseUtc } from "../lib/format";
+import { fmtDateTime, parseUtc } from "../lib/format";
+import { useSubject } from "../lib/subject";
+
+const bySubject = (alerts: Alert[] | undefined, s: Subject) => (alerts ?? []).filter((a) => s === "all" || a.subject === s);
 
 const FAST_POLL_MS = 3000; // while a summary is pending or a deadline has passed (scheduler runs every 30 s)
 const SLOW_POLL_MS = 15000;
@@ -147,8 +151,13 @@ function AlertCard({ a, now, demoSla, canReassign, onModal, onExpire }: CardProp
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <ZoneBadge zone={a.level} />
-            <Link to={`/patients/${a.patient_id}`} className="font-mono font-semibold text-brand-700 hover:underline">{a.patient_code}</Link>
-            {a.gestational_weeks != null && <span className="text-sm text-slate-500">{fmtWeeks(a.gestational_weeks)}</span>}
+            <Link to={a.subject === "child" ? `/children/${a.newborn_id}` : `/patients/${a.patient_id}`}
+              className="font-mono font-semibold text-brand-700 hover:underline">{a.patient_code}</Link>
+            {a.subject_label && (
+              <span className={`rounded px-1.5 text-xs font-semibold ${a.subject === "child" ? "bg-sky-50 text-sky-800 ring-1 ring-sky-200" : "bg-slate-100 text-slate-700"}`}>
+                {a.subject_label}
+              </span>
+            )}
             <span className="text-sm text-slate-500">· {a.mahalla_name}</span>
             {a.trend_driven && <TrendBadge />}
             <EscalationBadge a={a} />
@@ -206,6 +215,7 @@ export default function Alerts() {
   const qc = useQueryClient();
   const toast = useToast();
   const { user } = useAuth();
+  const [subject, setSubject] = useSubject();
   const isHead = user?.role === "department_head";
   const health = useQuery({ queryKey: ["health"], queryFn: () => api<{ demo_mode: boolean }>("/api/health"), staleTime: 300_000 });
   const demoSla = !!health.data?.demo_mode && (user?.role === "specialist" || isHead);
@@ -266,21 +276,29 @@ export default function Alerts() {
       onModal={openModal} onExpire={expireSla} />
   );
   const valid = modal?.mode === "reassign" ? target !== "" : action.trim().length >= 3;
+  const rows = bySubject(q.data, subject);
+  const lateRows = bySubject(late.data, subject);
+  const counts = q.data && {
+    pregnancy: bySubject(q.data, "pregnancy").length, child: bySubject(q.data, "child").length, all: q.data.length,
+  };
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-bold">Ogohlantirishlar</h1>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <h1 className="text-xl font-bold">Ogohlantirishlar</h1>
+        <SubjectSwitch value={subject} onChange={setSubject} counts={counts} />
+      </div>
 
       {isHead && (
         <section className="space-y-2 rounded-card bg-red-50/60 p-3 ring-1 ring-red-200">
           <h2 className="flex items-center gap-2 font-semibold text-red-900">
             Kechikkan ogohlantirishlar
-            <span className="rounded-full bg-red-600 px-2 text-xs text-white">{late.data?.length ?? 0}</span>
+            <span className="rounded-full bg-red-600 px-2 text-xs text-white">{lateRows.length}</span>
           </h2>
           <p className="text-xs text-red-900/80">Mutaxassis belgilangan muddatda qabul qilmagan va sizga yuborilgan ogohlantirishlar.</p>
           {late.error ? <ErrorBox error={late.error} /> : late.isLoading ? <Skeleton className="h-24" />
-            : !late.data?.length ? <p className="text-sm text-slate-600">Kechikkan ogohlantirishlar yo'q.</p>
-            : <div className="space-y-2">{late.data.map(card)}</div>}
+            : !lateRows.length ? <p className="text-sm text-slate-600">Kechikkan ogohlantirishlar yo'q.</p>
+            : <div className="space-y-2">{lateRows.map(card)}</div>}
         </section>
       )}
 
@@ -293,8 +311,8 @@ export default function Alerts() {
         ))}
       </div>
 
-      {q.error ? <ErrorBox error={q.error} /> : q.isLoading ? <Skeleton className="h-48" /> : !q.data?.length ? <Empty text="Ogohlantirishlar yo'q" /> : (
-        <div className="space-y-2">{q.data.map(card)}</div>
+      {q.error ? <ErrorBox error={q.error} /> : q.isLoading ? <Skeleton className="h-48" /> : !rows.length ? <Empty text="Ogohlantirishlar yo'q" /> : (
+        <div className="space-y-2">{rows.map(card)}</div>
       )}
 
       {modal && (

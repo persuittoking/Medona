@@ -1,4 +1,4 @@
-# OnaRadar — demo script (task 07: smart alerts)
+# OnaRadar — demo script (tasks 07–08: smart alerts, children 0–1 year)
 
 All data is synthetic. Password for every demo user: `demo1234`. Start: `start_all.bat`
 (backend :8000, frontend :5173). Reset afterwards: `reset_demo.bat` (stop the backend first).
@@ -35,8 +35,25 @@ All data is synthetic. Password for every demo user: `demo1234`. Start: `start_a
 3. "Tizim haqida" (department head / admins) shows the SLA settings read-only and the chain:
    RED specialist → bo'lim mudiri → tuman boshqaruvi (faqat soni).
 
-## 5. Admin view (≈20 s)
-Log in **region.admin** → map drill-down → counts only, no names or codes.
+## 5. Children 0–1 year: the same zones (≈60 s)
+1. Log in **PL-NUK-001 / nurse** → Bosh sahifa → switch **"Bolalar (0–1 yosh)"** (the choice is remembered per user).
+   The map shows children as **rounded squares** at the mother's home point (circles = pregnant women). The
+   KPIs and the top list are now about children.
+2. `B-QQR-NUK-DEMO4-1` (4 days old, 2150 g, 36 weeks) is **RED**: N03 "Tez nafas olish (64/daq)".
+3. Open `B-QQR-NUK-DEMO5-1` (boy, ~4 months, **GREEN**). The card shows the weight-for-age chart over the WHO median
+   and the −2 SD line, the vaccine status (all on time), the check history, and the mother's code as a link.
+4. **+ Yangi ko'rik** → breathing **56** → the live preview turns **RED**: I05 "Yoshiga nisbatan tez nafas (56/daq,
+   me'yor < 50)". Say: *under 2 months the limit is 60, so the threshold depends on age (WHO IMCI)*. Save.
+5. Log in **specialist** → Ogohlantirishlar → "Bolalar": the alert shows "Bola · 4 oy", the 3 bullets
+   (why · weight by age in months · next step "Bolani shoshilinch ravishda bolalar shifoxonasiga yo'llash") and
+   the countdown. "Demo: SLA muddatini hozir tugatish" → it escalates to the department head, the same chain as
+   pregnancies. Explanation text: "Bolalar uchun faqat klinik qoidalar va trendlar (ML modeli qo'llanilmaydi)".
+
+## 6. Admin view (≈20 s)
+Log in **region.admin** → map drill-down → counts only, no names or codes. The same switch
+"Homiladorlar | Bolalar | Hammasi" changes the counts.
 
 ## Reset
-Stop the backend, run `reset_demo.bat` (re-seeds the database; DEMO1 is YELLOW again).
+Stop the backend, run `reset_demo.bat` (re-seeds the database; DEMO1 is YELLOW again, DEMO5's child GREEN again).
+An older demo DB also keeps working without a reset: on startup the backend adds new columns (never drops
+anything), but the seeded children only appear after `reset_demo.bat`.

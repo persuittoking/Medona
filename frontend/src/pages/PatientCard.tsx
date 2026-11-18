@@ -9,9 +9,9 @@ import { MahallaMap } from "../components/MahallaMap";
 import { usePolyclinicMap } from "./PolyclinicMap";
 import { RiskExplain } from "../components/RiskExplain";
 import { Empty, ErrorBox, Skeleton, ZoneBadge } from "../components/ui";
-import { ALERT_STATUS_LABEL, DISCLAIMER, PROTEINURIA_LABEL, SYMPTOM_LABEL, ZONE_COLOR } from "../i18n/uz";
+import { ALERT_STATUS_LABEL, DISCLAIMER, PROTEINURIA_LABEL, SEX_LABEL, SYMPTOM_LABEL, ZONE_COLOR } from "../i18n/uz";
 import { useAuth } from "../lib/auth";
-import { fmtDate, fmtDateTime, fmtPct, fmtWeeks } from "../lib/format";
+import { fmtAge, fmtDate, fmtDateTime, fmtPct, fmtWeeks } from "../lib/format";
 
 function Gauge({ p, zone }: { p: number | null; zone: Zone }) {
   const v = p ?? 0;
@@ -92,6 +92,11 @@ export default function PatientCard() {
             <h1 className="font-mono text-xl font-bold">{d.code}</h1>
             <ZoneBadge zone={p.current_zone} size="lg" />
             {p.status !== "active" && <span className="rounded bg-slate-100 px-2 py-0.5 text-xs">{p.status === "delivered" ? "Tug'ruq bo'lgan" : p.status}</span>}
+            {p.status === "delivered" && d.newborns.filter((n) => n.pregnancy_id === p.id).map((n) => (
+              <Link key={n.id} to={`/children/${n.id}`} className="rounded bg-sky-50 px-2 py-0.5 text-xs font-semibold text-sky-800 ring-1 ring-sky-200 hover:underline">
+                Bola: {n.code} →
+              </Link>
+            ))}
           </div>
           <div className="mt-2 grid gap-x-6 gap-y-1 text-sm text-slate-600 sm:grid-cols-2">
             <span>Ism: <b>{pii ? pii.full_name : d.name_masked}</b></span>
@@ -169,14 +174,26 @@ export default function PatientCard() {
           </div>
           {d.newborns.length > 0 && (
             <div className="card">
-              <h3 className="mb-3 font-semibold">Chaqaloq</h3>
-              {d.newborns.map((n) => (
-                <div key={n.id} className="space-y-1 text-sm">
-                  <div className="flex items-center gap-2"><ZoneBadge zone={n.zone} /> Tug'ilgan: {fmtDate(n.birth_date)}</div>
-                  <div className="text-slate-600">{n.birth_weight_g} g · {n.gestational_weeks_at_birth} hafta · Apgar(5) {n.apgar_5 ?? "—"}</div>
-                  <ul className="mt-1 list-disc pl-5 text-slate-700">{n.hits.map((h) => <li key={h.code}><span className="font-mono text-xs text-slate-400">{h.code}</span> {h.uz_text}</li>)}</ul>
-                </div>
-              ))}
+              <h3 className="mb-3 font-semibold">Bolalari</h3>
+              <ul className="space-y-3">
+                {d.newborns.map((n) => (
+                  <li key={n.id} className="space-y-1 text-sm">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <ZoneBadge zone={n.zone} />
+                      <Link to={`/children/${n.id}`} className="font-mono font-semibold text-brand-700 hover:underline">{n.code ?? `#${n.id}`}</Link>
+                      <span className="text-slate-600">{n.sex ? SEX_LABEL[n.sex] : ""}{n.age_days != null && ` · ${fmtAge(n.age_days)}`}</span>
+                      {n.status !== "active" && <span className="rounded bg-slate-100 px-1.5 text-xs">{n.status === "graduated" ? "1 yoshdan oshgan" : n.status}</span>}
+                    </div>
+                    <div className="text-slate-600">Tug'ilgan: {fmtDate(n.birth_date)} · {n.birth_weight_g} g · {n.gestational_weeks_at_birth} hafta · Apgar(5) {n.apgar_5 ?? "—"}</div>
+                    {n.hits.length > 0 && (
+                      <ul className="mt-1 list-disc pl-5 text-slate-700">
+                        {n.hits.slice(0, 3).map((h) => <li key={h.code}><span className="font-mono text-xs text-slate-400">{h.code}</span> {h.uz_text}</li>)}
+                      </ul>
+                    )}
+                    <Link to={`/children/${n.id}`} className="text-xs font-medium text-brand-700 hover:underline">Bola kartasi →</Link>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
         </div>

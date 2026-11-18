@@ -1,7 +1,7 @@
 """AI summary generation in the background, cached per risk assessment.
 
 A visit save schedules `generate_cached(ra_id)`; the patient card polls GET /api/llm/summary until the cache row
-exists. On startup (key present) `prewarm_demo_patients` fills the cache for the DEMO1-DEMO4 cards.
+exists. On startup (key present) `prewarm_demo_patients` fills the cache for the DEMO1-DEMO4 cards and the demo children.
 """
 from __future__ import annotations
 
@@ -14,13 +14,15 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
-from app.llm.summary import SUMMARY_VERSION, build_llm_input, generate_summary
-from app.models import LlmSummaryCache, Patient, Pregnancy, RiskAssessment, Visit, utcnow
+from app.llm.summary import SUMMARY_VERSION, build_child_llm_input, build_llm_input, generate_summary
+from app.models import LlmSummaryCache, Newborn, NewbornCheck, Patient, Pregnancy, RiskAssessment, Visit, utcnow
+from app.services.children import check_dict, latest_child_assessment
 from app.services.scoring import preg_dict, risk_out, visit_dict
 
 log = logging.getLogger("onaradar.ai_summary")
 
 DEMO_CODES = ("QQR-NUK-DEMO1", "QQR-NUK-DEMO2", "QQR-NUK-DEMO3", "QQR-NUK-DEMO4")
+DEMO_CHILD_CODES = ("B-QQR-NUK-DEMO4-1", "B-QQR-NUK-DEMO5-1")
 PREWARM_GAP_S = 2.0
 
 _lock = threading.Lock()
@@ -63,11 +65,27 @@ def _visits_until(db: Session, preg: Pregnancy, ra: RiskAssessment) -> list[dict
     return [visit_dict(v) for v in preg.visits if visit is None or v.visit_date <= visit.visit_date]
 
 
+def _checks_until(db: Session, nb: Newborn, ra: RiskAssessment) -> list[dict]:
+    """The checks a child assessment was based on, with their computed overdue-vaccine lists."""
+    ck = db.get(NewbornCheck, ra.check_id) if ra.check_id else None
+    return [check_dict(c) | {"vaccines_due_overdue": c.vaccines_due_overdue or []}
+            for c in nb.checks if ck is None or c.check_date <= ck.check_date]
+
+
+def llm_payload(db: Session, ra: RiskAssessment) -> dict:
+    """The de-identified LLM input for an assessment (pregnancy or child)."""
+    if ra.newborn_id is not None:
+        nb = db.get(Newborn, ra.newborn_id)
+        return build_child_llm_input(nb.code, nb.birth_date, nb.sex, _checks_until(db, nb, ra), risk_out(ra),
+                                     today=ra.created_at.date())
+    preg = db.get(Pregnancy, ra.pregnancy_id)
+    return build_llm_input(preg.patient.code, preg.patient.birth_date, preg_dict(preg),
+                           _visits_until(db, preg, ra), risk_out(ra))
+
+
 def build_and_store(db: Session, ra: RiskAssessment) -> LlmSummaryCache:
     """Generate (Gemini -> fallbacks -> template) and upsert the cache row for this assessment."""
-    preg = db.get(Pregnancy, ra.pregnancy_id)
-    payload = build_llm_input(preg.patient.code, preg.patient.birth_date, preg_dict(preg),
-                              _visits_until(db, preg, ra), risk_out(ra))
+    payload = llm_payload(db, ra)
     result, tin, tout = generate_summary(payload)
     row = _cache_row(db, ra.id)
     if row is None:
@@ -103,7 +121,7 @@ def generate_cached(ra_id: int, force: bool = False) -> None:
     try:
         with SessionLocal() as db:
             ra = db.get(RiskAssessment, ra_id)
-            if ra is None or ra.pregnancy_id is None:
+            if ra is None or (ra.pregnancy_id is None and ra.newborn_id is None):
                 return
             if force or get_cached(db, ra_id) is None:
                 build_and_store(db, ra)
@@ -128,6 +146,11 @@ def prewarm_demo_patients(gap_s: float = PREWARM_GAP_S) -> int:
         for code in DEMO_CODES:
             pat = db.scalars(select(Patient).where(Patient.code == code)).first()
             ra = latest_pregnancy_assessment(db, pat) if pat else None
+            if ra is not None and get_cached(db, ra.id) is None:
+                todo.append(ra.id)
+        for code in DEMO_CHILD_CODES:
+            nb = db.scalars(select(Newborn).where(Newborn.code == code)).first()
+            ra = latest_child_assessment(db, nb.id) if nb else None
             if ra is not None and get_cached(db, ra.id) is None:
                 todo.append(ra.id)
     for i, ra_id in enumerate(todo):

@@ -53,6 +53,7 @@ class Hit(BaseModel):
     unit: str | None = None
     projected: float | None = None
     horizon_weeks: float | None = None
+    ages_months: list[float] | None = None  # infant growth trends (G01/G02): child's age at each point
 
 
 class ShapItem(BaseModel):
@@ -132,11 +133,15 @@ class AlertOut(BaseModel):
     action_taken: str | None
     assigned_to: str | None
     pregnancy_id: int | None
-    patient_id: int | None
-    patient_code: str | None
+    patient_id: int | None  # the mother's patient id (also for a child alert)
+    patient_code: str | None  # pseudonymous code of the subject (mother "QQR-..." or child "B-...")
     gestational_weeks: float | None
     mahalla_name: str | None
     reasons: list[str]
+    subject: Literal["pregnancy", "child"] = "pregnancy"
+    subject_label: str | None = None  # "Homilador · 32 hafta" | "Bola · 4 oy"
+    newborn_id: int | None = None
+    child_age_days: int | None = None
     assigned_role: str | None = None
     assigned_user_id: int | None = None
     next_role: str | None = None
@@ -180,13 +185,136 @@ class PatientRow(BaseModel):
 
 
 class NewbornOut(BaseModel):
+    """A child of this mother (on the mother's card)."""
     id: int
+    code: str | None = None
+    sex: str | None = None
+    status: str = "active"
+    age_days: int | None = None
+    pregnancy_id: int | None = None
     birth_date: date
     gestational_weeks_at_birth: float
     birth_weight_g: int
     apgar_5: int | None
     zone: Zone
     hits: list[Hit]
+
+
+Feeding = Literal["exclusive_breast", "mixed", "formula", "complementary"]
+
+
+class ChildCheckIn(BaseModel):
+    """An infant check (0-12 months). Booleans default to "not present"."""
+    newborn_id: int
+    check_date: date | None = None
+    weight_g: int | None = Field(None, ge=500, le=16000)
+    length_cm: float | None = Field(None, ge=30, le=95)
+    head_circ_cm: float | None = Field(None, ge=20, le=55)
+    resp_rate: int | None = Field(None, ge=10, le=120)
+    temperature_c: float | None = Field(None, ge=33, le=43)
+    feeding: Feeding | None = None
+    not_feeding_well: bool = False
+    vomiting_everything: bool = False
+    convulsions: bool = False
+    lethargic: bool = False
+    movement_only_when_stimulated: bool = False
+    severe_chest_indrawing: bool = False
+    jaundice_first_24h: bool = False
+    jaundice_palms_soles: bool = False
+    blood_in_stool: bool = False
+    diarrhoea_days: int | None = Field(None, ge=0, le=60)
+    cough_days: int | None = Field(None, ge=0, le=120)
+    vaccines_given: list[str] = []
+    notes: str | None = Field(None, max_length=2000)
+
+
+class ChildCheckOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    check_date: date
+    age_days: int | None
+    weight_g: int | None
+    length_cm: float | None
+    head_circ_cm: float | None
+    resp_rate: int | None
+    temperature_c: float | None
+    feeding: str | None
+    not_feeding_well: bool | None
+    vomiting_everything: bool | None
+    convulsions: bool | None
+    lethargic: bool | None
+    movement_only_when_stimulated: bool | None
+    severe_chest_indrawing: bool | None
+    jaundice_first_24h: bool | None
+    jaundice_palms_soles: bool | None
+    blood_in_stool: bool | None
+    diarrhoea_days: int | None
+    cough_days: int | None
+    vaccines_given: list[str] | None
+    vaccines_due_overdue: list[str] | None
+    notes: str | None
+
+
+class ChildRow(BaseModel):
+    newborn_id: int
+    code: str
+    mother_patient_id: int
+    mother_code: str
+    sex: str | None
+    age_days: int
+    zone: Zone
+    risk: float | None
+    last_check_date: date | None
+    overdue: bool
+    mahalla: str
+    main_reason: str | None
+
+
+class VaccineOut(BaseModel):
+    code: str
+    family: str
+    due_date: date
+    status: Literal["given", "overdue", "due", "upcoming"]
+    days_late: int
+
+
+class GrowthPoint(BaseModel):
+    age_months: float
+    weight_kg: float | None = None
+    z: float | None = None
+    median: float | None = None
+    minus2sd: float | None = None
+
+
+class ChildDetail(BaseModel):
+    newborn_id: int
+    code: str
+    sex: str | None
+    status: str
+    birth_date: date
+    age_days: int
+    gestational_weeks_at_birth: float
+    birth_weight_g: int
+    apgar_5: int | None
+    zone: Zone
+    mother_patient_id: int
+    mother_code: str
+    mahalla: str
+    polyclinic_name: str
+    latest_assessment: RiskOut | None
+    checks: list[ChildCheckOut]
+    assessments: list[RiskOut]
+    alerts: list[AlertOut]
+    growth: list[GrowthPoint]
+    reference: list[GrowthPoint]
+    vaccines: list[VaccineOut]
+
+
+class ChildCheckCreatedOut(BaseModel):
+    check: ChildCheckOut
+    assessment: RiskOut
+    previous_zone: Zone
+    alert: AlertOut | None
 
 
 class PregnancyOut(BaseModel):

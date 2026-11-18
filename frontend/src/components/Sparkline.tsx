@@ -7,7 +7,7 @@ const COLOR: Record<string, string> = { red: "#DC2626", yellow: "#D97706" };
 export function TrendSpark({ hit }: { hit: Hit }) {
   const values = hit.values ?? [];
   if (values.length < 2) return null;
-  const data = values.map((v, i) => ({ i, v, w: hit.weeks?.[i] }));
+  const data = values.map((v, i) => ({ i, v, w: hit.weeks?.[i], m: hit.ages_months?.[i] }));
   const color = COLOR[hit.zone] ?? "#475569";
   const arrow = hit.direction === "down" ? "↘" : "↗";
   return (
@@ -18,7 +18,10 @@ export function TrendSpark({ hit }: { hit: Hit }) {
           cursor={false}
           wrapperStyle={{ fontSize: 11 }}
           formatter={(v: number) => [`${v} ${hit.unit ?? ""}`, ""]}
-          labelFormatter={(_, p) => (p?.[0]?.payload?.w != null ? `${p[0].payload.w} hafta` : "")}
+          labelFormatter={(_, p) => {
+            const pt = p?.[0]?.payload;
+            return pt?.w != null ? `${pt.w} hafta` : pt?.m != null ? `${pt.m} oy` : "";
+          }}
         />
         <Line dataKey="v" stroke={color} strokeWidth={2} dot={{ r: 2, fill: color }} isAnimationActive={false} />
       </LineChart>

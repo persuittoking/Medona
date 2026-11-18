@@ -9,17 +9,18 @@ const MAX_WAIT_MS = 60_000;
 
 /** The backend generates the summary in the background (right after a visit is saved) and answers 202
  * "pending" until it is cached; we poll every 3 s for at most 60 s. */
-export function AiSummaryPanel({ pregnancyId }: { pregnancyId: number }) {
+export function AiSummaryPanel({ pregnancyId, newbornId }: { pregnancyId?: number; newbornId?: number }) {
   const qc = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
   const startedAt = useRef(Date.now());
-  const key = ["ai", pregnancyId];
+  const path = newbornId != null ? `/api/llm/summary/child/${newbornId}` : `/api/llm/summary/${pregnancyId}`;
+  const key = ["ai", path];
   useEffect(() => {
     startedAt.current = Date.now();
-  }, [pregnancyId]);
+  }, [path]);
   const q = useQuery({
     queryKey: key,
-    queryFn: () => api<AiSummary | AiSummaryPending>(`/api/llm/summary/${pregnancyId}`),
+    queryFn: () => api<AiSummary | AiSummaryPending>(path),
     staleTime: 60_000,
     refetchInterval: (query) =>
       query.state.data?.status === "pending" && Date.now() - startedAt.current < MAX_WAIT_MS ? POLL_MS : false,
@@ -29,7 +30,7 @@ export function AiSummaryPanel({ pregnancyId }: { pregnancyId: number }) {
     setRefreshing(true);
     startedAt.current = Date.now();
     try {
-      qc.setQueryData(key, await api<AiSummary | AiSummaryPending>(`/api/llm/summary/${pregnancyId}?refresh=true`));
+      qc.setQueryData(key, await api<AiSummary | AiSummaryPending>(`${path}?refresh=true`));
     } finally {
       setRefreshing(false);
     }

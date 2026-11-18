@@ -190,7 +190,7 @@ def test_prewarm_generates_demo_summaries(client, monkeypatch):
         db.query(LlmSummaryCache).delete()
         db.commit()
     monkeypatch.setattr(A, "generate_summary", lambda p: (S.template_summary(p), None, None))
-    assert A.prewarm_demo_patients(gap_s=0) == 4
+    assert A.prewarm_demo_patients(gap_s=0) == 6  # DEMO1-DEMO4 + the two demo children (DEMO4, DEMO5)
     assert A.prewarm_demo_patients(gap_s=0) == 0  # already cached
 
 

@@ -184,7 +184,7 @@ def test_department_head_logs_in_and_sees_only_own_polyclinic(client):
     me = client.get("/api/auth/me", headers=h).json()
     assert me["role"] == "department_head" and me["polyclinic_code"] == NUK
     rows = client.get("/api/alerts", headers=h).json()
-    assert rows and all(r["patient_code"].startswith("QQR-NUK-") for r in rows)
+    assert rows and all(r["patient_code"].removeprefix("B-").startswith("QQR-NUK-") for r in rows)  # child: B-<mother>
     other = login(client, CHL, "department_head")
     for path, body in ((f"/api/alerts/{rows[0]['id']}/ack", {"action_taken": "boshqa"}),
                        (f"/api/alerts/{rows[0]['id']}/reassign", {"user_id": 1})):

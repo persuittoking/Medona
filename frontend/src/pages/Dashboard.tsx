@@ -4,10 +4,14 @@ import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip as RToolti
 import { api } from "../api/client";
 import type { Summary, TopRow } from "../api/types";
 import { MahallaMap } from "../components/MahallaMap";
+import { SubjectSwitch } from "../components/SubjectSwitch";
 import { Empty, ErrorBox, Skeleton, ZoneBadge } from "../components/ui";
 import { useAuth } from "../lib/auth";
-import { fmtMinutes, fmtPct, fmtWeeks } from "../lib/format";
-import { usePolyclinicMap } from "./PolyclinicMap";
+import { fmtAge, fmtMinutes, fmtPct, fmtWeeks } from "../lib/format";
+import { useSubject } from "../lib/subject";
+import { pointsFor, toDots, usePolyclinicMap } from "./PolyclinicMap";
+
+const ACTIVE_LABEL = { pregnancy: "Faol homiladorlar", child: "Kuzatuvdagi bolalar", all: "Jami kuzatuvda" } as const;
 
 export function Kpi({ label, value, tone, hint }: { label: string; value: string | number; tone?: string; hint?: string }) {
   return (
@@ -22,22 +26,26 @@ export function Kpi({ label, value, tone, hint }: { label: string; value: string
 export default function Dashboard() {
   const { user } = useAuth();
   const nav = useNavigate();
-  const summary = useQuery({ queryKey: ["summary"], queryFn: () => api<Summary>("/api/dashboard/summary"), refetchInterval: 15000 });
-  const trend = useQuery({ queryKey: ["trend"], queryFn: () => api<{ week_start: string; red: number; yellow: number }[]>("/api/dashboard/trend") });
-  const top = useQuery({ queryKey: ["top"], queryFn: () => api<TopRow[]>("/api/dashboard/top"), refetchInterval: 15000 });
+  const [subject, setSubject] = useSubject();
+  const summary = useQuery({ queryKey: ["summary", subject], queryFn: () => api<Summary>(`/api/dashboard/summary?subject=${subject}`), refetchInterval: 15000 });
+  const trend = useQuery({ queryKey: ["trend", subject], queryFn: () => api<{ week_start: string; red: number; yellow: number }[]>(`/api/dashboard/trend?subject=${subject}`) });
+  const top = useQuery({ queryKey: ["top", subject], queryFn: () => api<TopRow[]>(`/api/dashboard/top?subject=${subject}`), refetchInterval: 15000 });
   const map = usePolyclinicMap();
   const s = summary.data;
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1>Bosh sahifa</h1>
-        <p className="mt-1 text-sm text-slate-500">{user?.polyclinic_name}</p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1>Bosh sahifa</h1>
+          <p className="mt-1 text-sm text-slate-500">{user?.polyclinic_name}</p>
+        </div>
+        <SubjectSwitch value={subject} onChange={setSubject} counts={s?.counts} />
       </div>
 
       {summary.error ? <ErrorBox error={summary.error} /> : !s ? <Skeleton className="h-24" /> : (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 xl:grid-cols-7">
-          <Kpi label="Faol homiladorlar" value={s.active_pregnancies} />
+          <Kpi label={ACTIVE_LABEL[subject]} value={s.active} />
           <Kpi label="Qizil zona" value={s.red} tone="text-zred" />
           <Kpi label="Sariq zona" value={s.yellow} tone="text-amber-600" />
           <Kpi label="Yashil zona" value={s.green} tone="text-zgreen" />
@@ -56,25 +64,27 @@ export default function Dashboard() {
           {map.error ? <ErrorBox error={map.error} /> : !map.data ? <Skeleton className="h-[440px]" /> : (
             <MahallaMap height={440}
               areas={map.data.mahallas.map((m) => ({ key: String(m.id), boundary: m.boundary, label: m.name }))}
-              dots={map.data.points.map((p) => ({ key: p.patient_id, lat: p.lat, lon: p.lon, zone: p.zone, label: p.code,
-                onClick: () => nav(`/patients/${p.patient_id}`) }))} />
+              dots={toDots(pointsFor(map.data.points, subject), nav)} />
           )}
         </section>
 
         <section className="card">
           <h2 className="mb-4">Eng yuqori xavf · 10 nafar</h2>
-          {top.isLoading ? <Skeleton className="h-96" /> : !top.data?.length ? <Empty text="Faol homiladorlar yo'q" /> : (
+          {top.isLoading ? <Skeleton className="h-96" /> : !top.data?.length ? <Empty text="Kuzatuvda hech kim yo'q" /> : (
             <ul className="divide-y divide-slate-100">
               {top.data.map((r) => (
-                <li key={r.pregnancy_id}>
-                  <Link to={`/patients/${r.patient_id}`} className="flex items-start gap-3 py-2 hover:bg-slate-50">
+                <li key={`${r.subject}-${r.pregnancy_id ?? r.newborn_id}`}>
+                  <Link to={r.subject === "child" ? `/children/${r.newborn_id}` : `/patients/${r.patient_id}`}
+                    className="flex items-start gap-3 py-2 hover:bg-slate-50">
                     <ZoneBadge zone={r.zone} />
                     <div className="min-w-0 flex-1">
                       <div className="flex justify-between gap-2">
                         <span className="font-mono text-sm font-medium">{r.code}</span>
-                        <span className="text-xs tabular-nums text-slate-500">{fmtPct(r.risk)}</span>
+                        {r.subject === "pregnancy" && <span className="text-xs tabular-nums text-slate-500">{fmtPct(r.risk)}</span>}
                       </div>
-                      <div className="truncate text-xs text-slate-500">{fmtWeeks(r.gestational_weeks)} · {r.main_reason ?? "—"}</div>
+                      <div className="truncate text-xs text-slate-500">
+                        {r.subject === "child" ? `Bola · ${fmtAge(r.child_age_days ?? 0)}` : `Homilador · ${fmtWeeks(r.gestational_weeks ?? 0)}`} · {r.main_reason ?? "—"}
+                      </div>
                     </div>
                   </Link>
                 </li>
@@ -86,7 +96,7 @@ export default function Dashboard() {
 
       <section className="card">
         <h2 className="mb-1">Haftalik dinamika</h2>
-        <p className="mb-4 text-xs text-slate-500">Qizil / sariq baholangan homiladorlar soni, oxirgi 12 hafta</p>
+        <p className="mb-4 text-xs text-slate-500">Qizil / sariq baholanganlar soni ({subject === "child" ? "bolalar" : subject === "all" ? "homiladorlar va bolalar" : "homiladorlar"}), oxirgi 12 hafta</p>
         {trend.isLoading ? <Skeleton className="h-56" /> : (
           <ResponsiveContainer width="100%" height={220}>
             <LineChart data={trend.data} margin={{ left: -20, right: 8, top: 8 }}>

@@ -4,6 +4,7 @@ from datetime import UTC, date, datetime
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     Float,
@@ -163,20 +164,40 @@ class Visit(Base):
     pregnancy: Mapped[Pregnancy] = relationship(back_populates="visits")
 
 
+CHILD_STATUSES = ("active", "graduated", "deceased", "moved")  # active until the 1st birthday, then graduated
+
+
 class Newborn(Base):
+    """A child followed from birth to 12 months ("Bola" in the UI; the table keeps its original name).
+
+    Tenant key: polyclinic_id / mahalla_id are copied from the MOTHER's patient record at creation.
+    `code` is pseudonymous: "B-" + mother's code + "-<n>".
+    """
     __tablename__ = "newborns"
     id: Mapped[int] = mapped_column(primary_key=True)
     pregnancy_id: Mapped[int] = mapped_column(ForeignKey("pregnancies.id"), index=True)
+    code: Mapped[str | None] = mapped_column(String(40), unique=True)
+    sex: Mapped[str | None] = mapped_column(String(1))  # m | f
+    status: Mapped[str] = mapped_column(String(16), default="active", index=True)
+    polyclinic_id: Mapped[int | None] = mapped_column(ForeignKey("polyclinics.id"), index=True)
+    mahalla_id: Mapped[int | None] = mapped_column(ForeignKey("mahallas.id"), index=True)
     birth_date: Mapped[date] = mapped_column(Date)
     gestational_weeks_at_birth: Mapped[float] = mapped_column(Float)
     birth_weight_g: Mapped[int] = mapped_column(Integer)
     apgar_5: Mapped[int | None] = mapped_column(Integer)
     current_zone: Mapped[str] = mapped_column(String(8), default="green")
+    current_risk_score: Mapped[float | None] = mapped_column(Float)  # ordering key from rules, NOT an ML probability
     pregnancy: Mapped[Pregnancy] = relationship(back_populates="newborns")
+    mahalla: Mapped[Mahalla | None] = relationship()
+    polyclinic: Mapped[Polyclinic | None] = relationship()
     checks: Mapped[list["NewbornCheck"]] = relationship(back_populates="newborn", order_by="NewbornCheck.check_date")
 
 
+Child = Newborn  # display alias: a "Bola" (0-12 months)
+
+
 class NewbornCheck(Base):
+    """An infant check (patronage / polyclinic). The first block of columns is the original neonatal check."""
     __tablename__ = "newborn_checks"
     id: Mapped[int] = mapped_column(primary_key=True)
     newborn_id: Mapped[int] = mapped_column(ForeignKey("newborns.id"), index=True)
@@ -190,6 +211,21 @@ class NewbornCheck(Base):
     jaundice_first_24h: Mapped[bool] = mapped_column(Boolean, default=False)
     jaundice_palms_soles: Mapped[bool] = mapped_column(Boolean, default=False)
     weight_g: Mapped[int | None] = mapped_column(Integer)
+    # infant check (task 08)
+    age_days: Mapped[int | None] = mapped_column(Integer)  # computed from the birth date
+    length_cm: Mapped[float | None] = mapped_column(Float)
+    head_circ_cm: Mapped[float | None] = mapped_column(Float)
+    feeding: Mapped[str | None] = mapped_column(String(20))  # exclusive_breast | mixed | formula | complementary
+    vomiting_everything: Mapped[bool | None] = mapped_column(Boolean, default=False)
+    diarrhoea_days: Mapped[int | None] = mapped_column(Integer)
+    blood_in_stool: Mapped[bool | None] = mapped_column(Boolean, default=False)
+    cough_days: Mapped[int | None] = mapped_column(Integer)
+    lethargic: Mapped[bool | None] = mapped_column(Boolean, default=False)
+    vaccines_given: Mapped[list | None] = mapped_column(JSON, default=list)  # dose codes given at this check
+    vaccines_due_overdue: Mapped[list | None] = mapped_column(JSON, default=list)  # computed: overdue dose codes
+    notes: Mapped[str | None] = mapped_column(Text)
+    entered_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=utcnow)
     newborn: Mapped[Newborn] = relationship(back_populates="checks")
 
 
@@ -213,9 +249,12 @@ class RiskAssessment(Base):
 
 class Alert(Base):
     __tablename__ = "alerts"
+    __table_args__ = (CheckConstraint("(pregnancy_id IS NULL) <> (newborn_id IS NULL)", name="ck_alert_one_subject"),)
     id: Mapped[int] = mapped_column(primary_key=True)
     risk_assessment_id: Mapped[int] = mapped_column(ForeignKey("risk_assessments.id"))
+    # exactly one of pregnancy_id / newborn_id is set (subject of the alert)
     pregnancy_id: Mapped[int | None] = mapped_column(ForeignKey("pregnancies.id"), index=True)
+    newborn_id: Mapped[int | None] = mapped_column(ForeignKey("newborns.id"), index=True)
     level: Mapped[str] = mapped_column(String(8))  # red | yellow
     status: Mapped[str] = mapped_column(String(16), default="open", index=True)
     assigned_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True)
@@ -227,6 +266,7 @@ class Alert(Base):
     action_taken: Mapped[str | None] = mapped_column(Text)
     risk_assessment: Mapped[RiskAssessment] = relationship()
     pregnancy: Mapped[Pregnancy | None] = relationship()
+    newborn: Mapped[Newborn | None] = relationship()
     events: Mapped[list["AlertEvent"]] = relationship(back_populates="alert", order_by="AlertEvent.id")
 
 

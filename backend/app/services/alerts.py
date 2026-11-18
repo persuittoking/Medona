@@ -10,12 +10,13 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import Select, or_, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.models import ADMIN_ROLES, Alert, AlertEvent, AuditLog, User, utcnow
+from app.models import ADMIN_ROLES, Alert, AlertEvent, AuditLog, Newborn, Patient, Polyclinic, Pregnancy, User, utcnow
 from app.risk.features import gest_weeks
+from app.risk.infant import age_days, age_text
 from app.risk.trends import is_predictive
 
 ESCALATION_CHAIN: dict[str, tuple[str, ...]] = {
@@ -31,6 +32,48 @@ ACK_ROLES = ("specialist", "doctor", "department_head")
 def sla_delta(level: str) -> timedelta:
     s = get_settings()
     return timedelta(minutes=s.effective_sla_red_minutes) if level == "red" else timedelta(hours=s.sla_yellow_hours)
+
+
+SUBJECTS = ("pregnancy", "child", "all")
+
+
+def polyclinic_alerts(stmt: Select, polyclinic_id: int) -> Select:
+    """Restrict an Alert statement to one polyclinic, whatever the subject (pregnancy or child)."""
+    stmt = (stmt.outerjoin(Pregnancy, Alert.pregnancy_id == Pregnancy.id)
+            .outerjoin(Patient, Pregnancy.patient_id == Patient.id)
+            .outerjoin(Newborn, Alert.newborn_id == Newborn.id))
+    return stmt.where(or_(Patient.polyclinic_id == polyclinic_id, Newborn.polyclinic_id == polyclinic_id))
+
+
+def by_subject(stmt: Select, subject: str | None) -> Select:
+    if subject == "pregnancy":
+        return stmt.where(Alert.pregnancy_id.is_not(None))
+    if subject == "child":
+        return stmt.where(Alert.newborn_id.is_not(None))
+    return stmt
+
+
+def alert_polyclinic(a: Alert) -> Polyclinic:
+    """Tenant polyclinic of the alert's subject (pregnancy -> mother; child -> copied from the mother)."""
+    return a.pregnancy.patient.polyclinic if a.pregnancy is not None else a.newborn.polyclinic
+
+
+def subject_info(a: Alert) -> dict:
+    """Who the alert is about, for lists and messages: "Homilador · 32 hafta" or "Bola · 4 oy" (no PII)."""
+    on = a.created_at.date()
+    if a.newborn is not None:
+        nb = a.newborn
+        mother = nb.pregnancy.patient
+        days = age_days(nb.birth_date, on)
+        return {"subject": "child", "newborn_id": nb.id, "code": nb.code, "patient_id": mother.id,
+                "pregnancy_id": None, "gestational_weeks": None, "child_age_days": days,
+                "subject_label": f"Bola · {age_text(days)}", "mahalla_name": mother.mahalla.name}
+    preg = a.pregnancy
+    pat = preg.patient
+    gw = gest_weeks(preg.lmp_date, on)
+    return {"subject": "pregnancy", "newborn_id": None, "code": pat.code, "patient_id": pat.id,
+            "pregnancy_id": preg.id, "gestational_weeks": gw, "child_age_days": None,
+            "subject_label": f"Homilador · {int(gw)} hafta", "mahalla_name": pat.mahalla.name}
 
 
 def chain_role(level: str, escalation_level: int) -> str:
@@ -72,11 +115,9 @@ def _history(db: Session, a: Alert) -> list[dict]:
 def alert_out(a: Alert, db: Session) -> dict:
     from app.services.ai_summary import alert_summary  # lazy: ai_summary -> scoring -> alerts
 
-    preg = a.pregnancy
-    pat = preg.patient if preg else None
+    subj = subject_info(a)
     ra = a.risk_assessment
     assignee = db.get(User, a.assigned_user_id) if a.assigned_user_id else None
-    visit_date = a.created_at.date()
     summary = alert_summary(db, a.risk_assessment_id)
     if summary["summary_status"] == "pending" and a.status not in ACTIVE:
         summary["summary_status"] = "unavailable"  # closed alerts are not (re)generated
@@ -89,10 +130,10 @@ def alert_out(a: Alert, db: Session) -> dict:
         "assigned_user_id": a.assigned_user_id,
         "next_role": (chain_role(a.level, a.escalation_level + 1)
                       if a.escalation_level < MAX_ESCALATION_LEVEL else None),
-        "pregnancy_id": preg.id if preg else None, "patient_id": pat.id if pat else None,
-        "patient_code": pat.code if pat else None,
-        "gestational_weeks": gest_weeks(preg.lmp_date, visit_date) if preg else None,
-        "mahalla_name": pat.mahalla.name if pat else None,
+        "subject": subj["subject"], "subject_label": subj["subject_label"], "newborn_id": subj["newborn_id"],
+        "child_age_days": subj["child_age_days"],
+        "pregnancy_id": subj["pregnancy_id"], "patient_id": subj["patient_id"], "patient_code": subj["code"],
+        "gestational_weeks": subj["gestational_weeks"], "mahalla_name": subj["mahalla_name"],
         "reasons": [h["uz_text"] for h in (ra.rule_hits + ra.trend_hits) if h["zone"] != "factor"][:4] if ra else [],
         "trend_driven": bool(ra and any(is_predictive(h) for h in ra.trend_hits)),
         **summary,
@@ -103,7 +144,7 @@ def alert_out(a: Alert, db: Session) -> dict:
 # ---------------- escalation ----------------
 def escalate(db: Session, a: Alert, now: datetime) -> list[tuple[str, User | None]]:
     """Move one overdue alert one step up the chain. Returns the notifications to send after commit."""
-    poly = a.pregnancy.patient.polyclinic
+    poly = alert_polyclinic(a)
     a.escalation_level += 1
     a.status = "escalated"
     a.sla_due_at = now + sla_delta(a.level)

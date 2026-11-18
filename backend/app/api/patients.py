@@ -9,9 +9,11 @@ from app.api.tenancy import Tenant, staff
 from app.models import Alert, Patient, Pregnancy, RiskAssessment, User, Visit
 from app.risk import thresholds as T
 from app.risk.features import bmi, gest_weeks
+from app.risk.infant import age_days
 from app.schemas import PatientDetail, PatientRow, PiiOut
 from app.security.crypto import decrypt, mask_name, mask_phone, mask_pinfl
 from app.services.alerts import alert_out
+from app.services.children import latest_child_assessment
 from app.services.geo import decrypt_home
 from app.services.scoring import preg_dict, risk_out
 
@@ -85,13 +87,14 @@ def patient_detail(patient_id: int, request: Request, t: Tenant = Depends(staff(
     assessments = db.scalars(select(RiskAssessment).where(RiskAssessment.pregnancy_id == preg.id)
                              .order_by(RiskAssessment.id)).all()
     alerts = db.scalars(select(Alert).where(Alert.pregnancy_id == preg.id).order_by(Alert.id.desc())).all()
-    newborns = []
-    for nb in preg.newborns:
-        ra = db.scalars(select(RiskAssessment).where(RiskAssessment.newborn_id == nb.id)
-                        .order_by(RiskAssessment.id.desc())).first()
-        newborns.append({"id": nb.id, "birth_date": nb.birth_date, "gestational_weeks_at_birth": nb.gestational_weeks_at_birth,
+    newborns = []  # all her children (any pregnancy), newest first; each links to /children/:id
+    for nb in sorted((n for pr in pat.pregnancies for n in pr.newborns), key=lambda n: n.birth_date, reverse=True):
+        ra = latest_child_assessment(db, nb.id)
+        newborns.append({"id": nb.id, "code": nb.code, "sex": nb.sex, "status": nb.status,
+                         "age_days": age_days(nb.birth_date, date.today()), "pregnancy_id": nb.pregnancy_id,
+                         "birth_date": nb.birth_date, "gestational_weeks_at_birth": nb.gestational_weeks_at_birth,
                          "birth_weight_g": nb.birth_weight_g, "apgar_5": nb.apgar_5, "zone": nb.current_zone,
-                         "hits": ra.rule_hits if ra else []})
+                         "hits": (ra.rule_hits + ra.trend_hits) if ra else []})
     nurse = db.get(User, pat.assigned_nurse_id) if pat.assigned_nurse_id else None
     b = bmi(preg_dict(preg))
     return {

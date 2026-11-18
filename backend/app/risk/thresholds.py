@@ -85,6 +85,50 @@ NB_VLBW_G = 1500
 NB_LBW_G = 2500
 NB_APGAR_LOW = 7
 NB_CHECK_BY_DAY = 3
+NEONATAL_DAYS = 28  # N01-N13 apply up to and including day 28
+
+# --- Infant 0-12 months (I01-I14, G01-G02) ---
+# Sources: WHO IMCI chart booklet (2014) — "sick young infant up to 2 months" and "sick child 2 months to 5 years"
+# danger signs; WHO Child Growth Standards (2006) weight-for-age. STATUS: to be verified by a clinician.
+INFANT_MAX_DAYS = 365              # followed until the 1st birthday, then status "graduated"
+YOUNG_INFANT_DAYS = 60             # "under 2 months" (IMCI young infant)
+INF_RESP_FAST_UNDER_2M = 60        # IMCI fast breathing: >= 60/min under 2 months
+INF_RESP_FAST_2_12M = 50           # IMCI fast breathing: >= 50/min from 2 to 12 months
+INF_TEMP_HIGH_UNDER_2M = 38.0      # IMCI young infant: fever >= 38.0 °C is a danger sign
+INF_TEMP_LOW = 35.5                # hypothermia < 35.5 °C
+INF_DIARRHOEA_PERSISTENT_DAYS = 14  # IMCI: persistent diarrhoea >= 14 days
+INF_COUGH_CHRONIC_DAYS = 14        # IMCI: cough >= 14 days -> refer for assessment (TB etc.)
+INF_WFA_LOW_Z = -2.0               # WHO: weight-for-age below -2 SD = underweight
+INF_VACCINE_OVERDUE_DAYS = 30      # a scheduled dose more than 30 days late
+INF_CHECK_INTERVAL_DAYS = 30       # patronage / polyclinic check monthly in the first year
+INF_EXCLUSIVE_BF_DAYS = 183        # WHO: exclusive breastfeeding for the first 6 months
+# Growth trends over the last checks (WHO growth standards: a fall crossing 2 major percentile lines
+# ~ 0.67 SD is the usual "growth faltering" signal).
+INF_Z_DROP = 0.67
+INF_PLATEAU_STEPS = 2              # weight not increasing at 2 consecutive checks
+INF_MIN_TREND_GAP_DAYS = 7         # checks closer than a week are too noisy for growth trends
+
+# WHO Child Growth Standards, weight-for-age 0-12 months (kg): (median, -2 SD) by completed month.
+# Source: WHO simplified field tables "Weight-for-age BOYS / GIRLS, birth to 2 years (z-scores)", 2006.
+# z is computed on the lower half of the distribution: SD = (median - (-2SD)) / 2, linear between months —
+# an approximation of the WHO LMS method, accurate enough below the median where the rule acts.
+WFA_TABLE: dict[str, list[tuple[float, float]]] = {
+    "m": [(3.3, 2.5), (4.5, 3.4), (5.6, 4.3), (6.4, 5.0), (7.0, 5.6), (7.5, 6.0), (7.9, 6.4),
+          (8.3, 6.7), (8.6, 6.9), (8.9, 7.1), (9.2, 7.4), (9.4, 7.6), (9.6, 7.7)],
+    "f": [(3.2, 2.4), (4.2, 3.2), (5.1, 3.9), (5.8, 4.5), (6.4, 5.0), (6.9, 5.4), (7.3, 5.7),
+          (7.6, 6.0), (7.9, 6.3), (8.2, 6.5), (8.5, 6.7), (8.7, 6.9), (8.9, 7.0)],
+}
+DAYS_PER_MONTH = 30.4375
+
+# National immunisation calendar of Uzbekistan, first year (dose code, vaccine family, due age in days).
+# Only names + ages; due dates are computed from the birth date. To be verified against the current MoH order.
+VACCINE_SCHEDULE: list[tuple[str, str, int]] = [
+    ("HepB-0", "HepB", 0), ("BCG", "BCG", 3), ("OPV-0", "OPV/IPV", 3),
+    ("Penta-1", "Pentavalent", 61), ("OPV-1", "OPV/IPV", 61), ("Rota-1", "Rotavirus", 61), ("PCV-1", "PCV", 61),
+    ("Penta-2", "Pentavalent", 91), ("OPV-2", "OPV/IPV", 91), ("Rota-2", "Rotavirus", 91), ("PCV-2", "PCV", 91),
+    ("Penta-3", "Pentavalent", 122), ("OPV-3", "OPV/IPV", 122), ("IPV-1", "OPV/IPV", 122),
+    ("MMR-1", "MMR", 365), ("PCV-3", "PCV", 365),
+]
 
 # --- ML probability cut-offs ---
 # BEGIN ML THRESHOLDS (auto-written by backend/ml/train.py — do not edit by hand)
