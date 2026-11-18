@@ -1,11 +1,13 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
+from sqlalchemy.orm import Session
 
 from app.api.deps import require_admin
 from app.api.tenancy import Tenant, staff
 from app.config import get_settings
+from app.db import get_db
 from app.llm.summary import llm_status
 from app.models import RiskAssessment, User
-from app.services.ai_summary import build_and_store, generate_cached, get_cached, is_pending
+from app.services.ai_summary import build_and_store, demo_summary_status, generate_cached, get_cached, is_pending
 from app.services.children import latest_child_assessment
 from app.services.scoring import latest_assessment
 
@@ -57,7 +59,7 @@ def _summary(t: Tenant, ra: RiskAssessment, background: BackgroundTasks, respons
 
 
 @router.get("/health")
-def llm_health(_: User = Depends(require_admin)) -> dict:
+def llm_health(_: User = Depends(require_admin), db: Session = Depends(get_db)) -> dict:
     """Admin view of the LLM integration: is a key configured, did the last real call succeed, last error.
 
     The key itself is never returned. `last_call` is null until the first real call since the backend started.
@@ -77,4 +79,5 @@ def llm_health(_: User = Depends(require_admin)) -> dict:
         "last_model": st["last_model"],
         "last_error": st["last_error"],
         "last_attempts": st.get("last_attempts", []),
+        "demo_summaries": demo_summary_status(db),  # counts only: are the DEMO cards' summaries ready?
     }

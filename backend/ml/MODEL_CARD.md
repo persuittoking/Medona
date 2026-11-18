@@ -22,15 +22,27 @@ The final decision belongs to the doctor. Not a diagnostic device.
 factors + deterioration paths + noise (`ml/generate_synthetic.py`). Base rate ≈ 10%.
 The hidden latent variables are not features.
 
-## Results on synthetic test set (model 5622c10fe7, 20,000 pregnancies, 174,505 visit rows)
-| Metric | Value |
+## Results on the synthetic test set
+The numbers below are written by `python -m ml.metrics_docs` from `artifacts/metrics.json` (also run by
+`train.py`); a test fails if they drift. Do not edit them by hand.
+
+<!-- BEGIN METRICS (auto-generated from backend/ml/artifacts/metrics.json by ml/metrics_docs.py) -->
+Model `5622c10fe7`, trained 2026-11-17 on **SYNTHETIC (demo) — retrain on real DMED data** (20,000 pregnancies, 174,505 visit rows; split by pregnancy).
+
+| Metric (synthetic test set) | Value |
 |---|---|
-| ROC-AUC (test) | 0.662 |
-| PR-AUC (test, base rate 9.7%) | 0.279 |
-| Brier | 0.079 |
+| ROC-AUC | 0.662 |
+| PR-AUC (base rate 9.7%) | 0.279 |
+| Brier score | 0.079 |
 | CV ROC-AUC (5-fold mean) | 0.648 |
 | ROC-AUC by trimester (1 / 2 / 3) | 0.55 / 0.54 / 0.71 |
 | ROC-AUC by region (FAR / QQR / TSH) | 0.63 / 0.68 / 0.65 |
+| Combined system sensitivity, pregnancy level (from 28 w) | 91.8% (flags 73.1% of pregnancies) |
+| Combined system sensitivity, per visit | 63.7% (flags 46.8% of visits) |
+| ML alone at red cut-off 0.35 | sensitivity 14.7%, precision 61.8% |
+
+Synthetic data only: real-world performance is unknown until the model is retrained and validated on real data.
+<!-- END METRICS -->
 
 Every visit is scored, including early visits before any deterioration has begun, so early-pregnancy
 discrimination is low by construction. That is expected: the model is most useful in the 3rd trimester.
@@ -38,21 +50,15 @@ discrimination is low by construction. That is expected: the model is most usefu
 ## Thresholds
 `ML_YELLOW` and `ML_RED` (in `app/risk/thresholds.py`) are chosen on the calibration split:
 
-- **yellow (0.12)** — the highest cut-off (within 0.08–0.20) that keeps the **combined** system
+- **yellow (`ML_YELLOW`)** — the highest cut-off (within 0.08–0.20) that keeps the **combined** system
   (rules + trends OR ML) at ≥85% **pregnancy-level** sensitivity: a pregnancy with an adverse outcome
   counts as caught if it is YELLOW/RED at least once from 28 weeks.
-- **red (0.35)** — the lowest cut-off where ML-alone precision reaches 60%.
+- **red (`ML_RED`)** — the lowest cut-off where ML-alone precision reaches 60%.
 
-On the test split:
-
-| Combined system (rules + trends OR ML) | Sensitivity | Flagged |
-|---|---|---|
-| Pregnancy level (flagged at least once from 28 w) | **91.8%** | 73.1% of pregnancies |
-| Per visit (every visit, incl. 1st trimester) | 63.7% | 46.8% of visits |
-| ML alone ≥ red | 14.7% (precision 61.8%) | 2.3% of visits |
+The resulting test-split sensitivities (pregnancy level, per visit, ML alone) are in the metrics block above.
 
 Why pregnancy level: the previous per-visit target (≥90%) needed ML yellow at its 0.08 floor and flagged
-~80% of visits, i.e. almost the whole register would be yellow. With an AUC around 0.66, ≥85% *per-visit*
+~80% of visits, i.e. almost the whole register would be yellow. With the ROC-AUC above, ≥85% *per-visit*
 sensitivity is not reachable together with a mostly-green register; per-visit sensitivity is shown above
 so this trade-off is visible.
 

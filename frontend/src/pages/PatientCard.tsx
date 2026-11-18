@@ -166,7 +166,13 @@ export default function PatientCard() {
         <div className="card space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h3 className="font-semibold">Tashriflar intensivligi rejasi ({vp.standard_visits} ta majburiy ko'rik)</h3>
+              <h3 className="flex flex-wrap items-center gap-2 font-semibold">
+                Tashriflar intensivligi rejasi ({vp.standard_visits} ta majburiy ko'rik)
+                <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800"
+                  title="Ko'rik haftalari namunaviy: akusher-ginekolog tasdiqlagan milliy jadval bilan almashtiriladi">
+                  demo jadval
+                </span>
+              </h3>
               <p className="text-xs text-slate-500">
                 Milliy standart bo'yicha {vp.standard_visits} ta majburiy antenatal ko'rik soni hech qachon qisqartirilmaydi.
               </p>

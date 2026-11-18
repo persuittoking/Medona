@@ -37,27 +37,31 @@ next level → everything is logged.
 6. **Demo must never fail.** Every external dependency (LLM API, Telegram) has an offline fallback,
    and the app runs fully with `docker compose up` and no internet except those optional services.
 
-## Tech stack (keep to this; don't add frameworks without asking)
-- Backend: Python 3.11, FastAPI, SQLAlchemy 2.0, Pydantic v2, Alembic, PostgreSQL 16
-  (SQLite allowed via `DATABASE_URL` for local tests), JWT auth (python-jose), passlib[bcrypt],
-  cryptography (Fernet) for field encryption, APScheduler for SLA escalation.
+## Tech stack — what the prototype really uses (keep to this; don't add frameworks without asking)
+- Backend: Python 3.11+, FastAPI, SQLAlchemy 2.0, Pydantic v2, **SQLite** (`DATABASE_URL`), JWT auth
+  (python-jose), bcrypt, cryptography (Fernet) for field encryption + HMAC-SHA256 for the JShShIR lookup hash,
+  APScheduler for SLA escalation. No Alembic yet: `create_all` + a non-destructive `ensure_columns` upgrade.
 - ML: pandas, numpy, scikit-learn, LightGBM, SHAP, joblib. Model artifacts in `backend/ml/artifacts/`.
 - LLM: Google Gemini via the official `google-genai` SDK. Env: `LLM_PROVIDER=gemini`, `GEMINI_API_KEY`,
-  `GEMINI_MODEL` (default `gemini-3.8-flash`), `LLM_TIMEOUT_S` (default 25). Structured JSON output, one
-  plain-JSON retry, then the template fallback ("Shablon") when the key is missing or both calls fail.
+  `GEMINI_MODEL` / `GEMINI_FALLBACK_MODEL` (see `backend/.env.example`), `LLM_TIMEOUT_S` (default 25). Structured
+  JSON output, fallback model, one plain-JSON retry, then the template fallback ("Shablon").
   Only the de-identified allow-list payload is sent. Real patient data requires a PAID Gemini API tier.
-- Telegram: aiogram 3, runs as a separate service, polling mode.
-- Frontend: React 18 + TypeScript + Vite, Tailwind CSS, shadcn/ui, TanStack Query, React Router,
-  Recharts, react-leaflet (OpenStreetMap tiles), i18next (uz-Latn default, ru optional).
-- Infra: Docker Compose (db, backend, bot, frontend), pytest, ruff, eslint, GitHub Actions CI.
+- Telegram: a **send-only adapter** in `backend/app/services/notify.py` (Bot API over HTTPS; logs "offline" without a
+  token). No aiogram bot service yet.
+- Frontend: React 18 + TypeScript + Vite, Tailwind CSS (own small components, no shadcn/ui), TanStack Query,
+  React Router, Recharts, react-leaflet (Esri satellite / OpenStreetMap tiles). Uzbek strings in `src/i18n/uz.ts`
+  (no i18next yet).
+- Infra: Windows `.bat` / `.ps1` scripts, pytest, ruff, eslint. No Docker, no CI yet.
+- **Production plan:** PostgreSQL 16 + Alembic migrations, Docker Compose (db, backend, bot, frontend), an aiogram
+  bot service, CI, and hosting inside Uzbekistan (personal-data localization, Law ZRU-547).
 
 ## Repo layout
 backend/app/{main.py, config.py, db.py, models/, schemas/, api/, services/, risk/, llm/, security/}
-backend/ml/{generate_synthetic.py, train.py, artifacts/, MODEL_CARD.md}
+backend/ml/{generate_synthetic.py, train.py, metrics_docs.py, artifacts/, MODEL_CARD.md}
 backend/tests/
-bot/
 frontend/src/{pages/, components/, api/, i18n/, lib/}
-docs/{ARCHITECTURE.md, CLINICAL_RULES.md, PRIVACY_AND_LEGAL.md, DEMO_SCRIPT.md, QA_PREP.md}
+docs/{ARCHITECTURE.md, CLINICAL_RULES.md, PRIVACY_AND_LEGAL.md, DEMO_SCRIPT.md, QA_PREP.md, CODE_TOUR.md,
+      BUSINESS_MODEL.md}
 
 ## Language
 - All user-facing text in **Uzbek (Latin script)**, clear and polite, using medical terms common in

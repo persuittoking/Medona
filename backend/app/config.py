@@ -6,16 +6,17 @@ from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
+DEV_JWT_SECRET = "dev-only-insecure-secret"  # dev fallback: allowed ONLY in DEMO_MODE
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=BACKEND_DIR / ".env", env_file_encoding="utf-8", extra="ignore")
 
     database_url: str = "sqlite:///./onaradar.db"
-    jwt_secret: str = "dev-only-insecure-secret"
+    jwt_secret: str = DEV_JWT_SECRET
     jwt_expire_minutes: int = 60 * 12
     fernet_key: str = ""
-    pinfl_hash_secret: str = ""  # HMAC-SHA256 key for exact-match JShShIR lookup (defaults to jwt_secret)
+    pinfl_hash_secret: str = ""  # HMAC-SHA256 key for exact-match JShShIR lookup (DEMO_MODE falls back to jwt_secret)
     llm_provider: str = "gemini"
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.1-flash-lite"
@@ -37,6 +38,25 @@ class Settings(BaseSettings):
     def _strip_strings(cls, v: object) -> object:
         """.env files edited on Windows may carry CRLF / stray spaces: strip them so keys stay valid."""
         return v.strip().strip("\r").strip() if isinstance(v, str) else v
+
+    def secret_problems(self) -> list[str]:
+        """Weak secrets. Outside DEMO_MODE the backend refuses to start if this is not empty (never prints values)."""
+        problems = []
+        if not self.jwt_secret or self.jwt_secret == DEV_JWT_SECRET:
+            problems.append("JWT_SECRET is empty or the dev default")
+        if not self.pinfl_hash_secret:
+            problems.append("PINFL_HASH_SECRET is empty")
+        elif self.pinfl_hash_secret == self.jwt_secret:
+            problems.append("PINFL_HASH_SECRET must differ from JWT_SECRET")
+        if not self.fernet_key:
+            problems.append("FERNET_KEY is empty")
+        return problems
+
+    def check_secrets(self) -> None:
+        """Called on startup. DEMO_MODE keeps the dev fallbacks; production refuses to start with weak secrets."""
+        problems = self.secret_problems()
+        if problems and not self.demo_mode:
+            raise RuntimeError("Refusing to start (DEMO_MODE=false): " + "; ".join(problems))
 
     @property
     def llm_enabled(self) -> bool:

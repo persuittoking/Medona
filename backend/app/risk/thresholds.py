@@ -56,6 +56,8 @@ TIER_B_MIN_FOR_YELLOW = 2
 
 # --- Adaptive visit intensity (advisory only; mandatory 12 visits are NEVER reduced) ---
 STANDARD_VISITS = 12
+# DEMO calendar, to be replaced by the national schedule confirmed by an obstetrician.
+# (Not provided by a clinician; the UI labels it "demo jadval".)
 STANDARD_VISIT_WEEKS = (8, 12, 16, 20, 24, 28, 30, 32, 34, 36, 38, 40)  # 12 mandatory antenatal visits
 CONSECUTIVE_GREEN_REQUIRED = 3
 LIGHT_VISIT_MAX_WEEKS = 36      # from 36 weeks onwards all visits stay "To'liq" (full doctor visit)

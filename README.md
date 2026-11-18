@@ -71,6 +71,27 @@ Region → District → **Polyclinic (oilaviy poliklinika, the tenant)** → Mah
 Staff see only their own polyclinic (one central dependency, `backend/app/api/tenancy.py`), including patient
 home points on the mahalla map. District/region admins see **aggregated counts only** (no names, codes or homes).
 
+## Model (synthetic data)
+Clinical rules always decide first; the ML model can only raise a zone. Details: `backend/ml/MODEL_CARD.md`.
+
+<!-- BEGIN METRICS (auto-generated from backend/ml/artifacts/metrics.json by ml/metrics_docs.py) -->
+Model `5622c10fe7`, trained 2026-11-17 on **SYNTHETIC (demo) — retrain on real DMED data** (20,000 pregnancies, 174,505 visit rows; split by pregnancy).
+
+| Metric (synthetic test set) | Value |
+|---|---|
+| ROC-AUC | 0.662 |
+| PR-AUC (base rate 9.7%) | 0.279 |
+| Brier score | 0.079 |
+| CV ROC-AUC (5-fold mean) | 0.648 |
+| ROC-AUC by trimester (1 / 2 / 3) | 0.55 / 0.54 / 0.71 |
+| ROC-AUC by region (FAR / QQR / TSH) | 0.63 / 0.68 / 0.65 |
+| Combined system sensitivity, pregnancy level (from 28 w) | 91.8% (flags 73.1% of pregnancies) |
+| Combined system sensitivity, per visit | 63.7% (flags 46.8% of visits) |
+| ML alone at red cut-off 0.35 | sensitivity 14.7%, precision 61.8% |
+
+Synthetic data only: real-world performance is unknown until the model is retrained and validated on real data.
+<!-- END METRICS -->
+
 ## Demo logins (password `demo1234`)
 | Poliklinika ID | Login | Role |
 |---|---|---|
@@ -86,13 +107,14 @@ trend while the last visit is still below every static threshold (P01/P02).
 
 ## Demo story (3 min)
 1. Login map: the polyclinic's mahalla on satellite imagery. Log in **PL-NUK-001 / nurse** → mahalla map with
-   patient homes coloured by zone.
+   **red-zone homes only** (minimum necessary data for the nurse; doctors see all zones).
 2. Bemorlar → `QQR-NUK-DEMO1` (19 y, 31 weeks, **YELLOW** by the predictive trend P01 only: diastolic 72 → 78 → 84
    over 3 checkups, projected 90 in 2 weeks; sparkline ↗ in "Nega bu zona?") → **+ Yangi tashrif** →
    BP 152/98, protein **+2**, *Kuchli bosh og'rig'i* → live preview turns **RED** (R02) → save.
 3. Log in **PL-NUK-001 / specialist** → Ogohlantirishlar → red alert with the 3-bullet summary and the live
    "Javob berish uchun qoldi" countdown → *Demo: SLA muddatini hozir tugatish* → within 30 s "Bo'lim mudiriga yuborildi".
 4. Log in **PL-NUK-001 / department_head** → "Kechikkan ogohlantirishlar" → *Qabul qildim* (or reassign).
+   Closing needs a new measurement; a RED closure is confirmed by a second person ("proof of care").
 5. Log in **region.admin** → O'zbekiston › Qoraqalpog'iston › Nukus shahri › PL-NUK-001: counts only.
 
 Full script: `docs/DEMO_SCRIPT.md`.

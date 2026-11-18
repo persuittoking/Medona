@@ -15,6 +15,13 @@ def hash_pinfl(pinfl: str) -> str:
     return hmac.new(secret, pinfl.strip().encode(), hashlib.sha256).hexdigest()
 
 
+def pinfl_secret_fingerprint() -> str:
+    """Non-reversible fingerprint of the current PINFL hash key: detects a key change without storing the key."""
+    s = get_settings()
+    secret = (s.pinfl_hash_secret or s.jwt_secret).encode()
+    return hmac.new(secret, b"onaradar-pinfl-key-fingerprint", hashlib.sha256).hexdigest()[:24]
+
+
 @lru_cache
 def _fernet() -> Fernet:
     key = get_settings().fernet_key

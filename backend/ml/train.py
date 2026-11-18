@@ -182,6 +182,12 @@ def main() -> None:
     ART.mkdir(exist_ok=True)
     joblib.dump({"model": model, "isotonic": iso, "features": FEATURES, "version": version}, ART / "model.joblib")
     (ART / "metrics.json").write_text(json.dumps(metrics, indent=2, ensure_ascii=False), encoding="utf-8")
+    try:  # keep MODEL_CARD.md / README.md in sync with the new metrics (never hand-copied)
+        from ml.metrics_docs import write_docs
+
+        write_docs(ART / "metrics.json")
+    except Exception as e:  # noqa: BLE001 - docs are secondary to a finished training run
+        print(f"[train] could not update metric docs: {e}")
     sys_sens = metrics["at_thresholds"]["system_yellow_or_red"]["sensitivity"]
     preg_sens = metrics["at_thresholds"]["system_pregnancy_level"]["sensitivity"]
     write_thresholds(yellow, red, f"chosen {date.today()} on calibration split: pregnancy-level recall target "

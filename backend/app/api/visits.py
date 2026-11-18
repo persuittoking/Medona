@@ -131,7 +131,8 @@ def create_external_visit(body: ExternalVisitIn, request: Request, background: B
                           t: Tenant = Depends(staff("nurse", "doctor"))) -> dict:
     """Record a visit/analysis at an external polyclinic; scored and stored under the responsible clinic."""
     db, user = t.db, t.user
-    preg = t.resolve_external_pregnancy(pinfl=body.pinfl, pregnancy_id=body.pregnancy_id, patient_code=body.patient_code)
+    preg = t.resolve_external_pregnancy(pinfl=body.pinfl, pregnancy_id=body.pregnancy_id,
+                                        patient_code=body.patient_code, request=request)
     pat = preg.patient
     from_pc = db.get(Polyclinic, t.polyclinic_id)
     performed_id = t.polyclinic_id if pat.polyclinic_id != t.polyclinic_id else None
@@ -181,7 +182,8 @@ def create_external_check(body: ExternalCheckIn, request: Request, background: B
                           t: Tenant = Depends(staff("nurse", "doctor"))) -> dict:
     """Record an infant check at an external polyclinic; scored and stored under the responsible clinic."""
     db, user = t.db, t.user
-    nb = t.resolve_external_newborn(pinfl=body.pinfl, newborn_id=body.newborn_id, child_code=body.child_code)
+    nb = t.resolve_external_newborn(pinfl=body.pinfl, newborn_id=body.newborn_id, child_code=body.child_code,
+                                    request=request)
     pat = nb.pregnancy.patient
     from_pc = db.get(Polyclinic, t.polyclinic_id)
     performed_id = t.polyclinic_id if pat.polyclinic_id != t.polyclinic_id else None

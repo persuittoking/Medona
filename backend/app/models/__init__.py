@@ -372,6 +372,13 @@ class QualityFlag(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
+class AppMeta(Base):
+    """Small key/value store for app state (e.g. the fingerprint of the PINFL hash secret). Never secrets."""
+    __tablename__ = "app_meta"
+    key: Mapped[str] = mapped_column(String(48), primary_key=True)
+    value: Mapped[str] = mapped_column(String(200))
+
+
 class LlmSummaryCache(Base):
     __tablename__ = "llm_summaries"
     id: Mapped[int] = mapped_column(primary_key=True)

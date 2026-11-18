@@ -58,8 +58,9 @@ def ensure_columns(eng=None) -> list[str]:
     return added
 
 
-def backfill_pinfl_hashes(eng=None) -> int:
-    """Populate Patient.pinfl_hash for any existing rows whose hash is NULL (older demo DBs)."""
+def backfill_pinfl_hashes(eng=None, force: bool = False) -> int:
+    """Populate Patient.pinfl_hash for rows whose hash is NULL (older demo DBs); `force` recomputes ALL rows
+    (needed after PINFL_HASH_SECRET changed). Returns the number of rows written."""
     from sqlalchemy import select
 
     from app.models import Patient
@@ -69,11 +70,34 @@ def backfill_pinfl_hashes(eng=None) -> int:
     maker = sessionmaker(bind=eng, autoflush=False, expire_on_commit=False)
     n = 0
     with maker() as db:
-        rows = db.scalars(select(Patient).where(Patient.pinfl_hash.is_(None))).all()
-        for pat in rows:
+        stmt = select(Patient) if force else select(Patient).where(Patient.pinfl_hash.is_(None))
+        for pat in db.scalars(stmt).all():
             pat.pinfl_hash = hash_pinfl(decrypt(pat.pinfl_enc))
             n += 1
         if n:
+            db.commit()
+    return n
+
+
+PINFL_FP_KEY = "pinfl_hash_key_fingerprint"
+
+
+def sync_pinfl_hashes(eng=None) -> int:
+    """On startup: if the PINFL hash key changed since the hashes were written (fingerprint in app_meta),
+    recompute every hash; otherwise only fill missing ones. Returns the number of rows written."""
+    from app.models import AppMeta
+    from app.security.crypto import pinfl_secret_fingerprint
+
+    eng = eng or engine
+    maker = sessionmaker(bind=eng, autoflush=False, expire_on_commit=False)
+    fp = pinfl_secret_fingerprint()
+    with maker() as db:
+        row = db.get(AppMeta, PINFL_FP_KEY)
+        changed = row is None or row.value != fp
+    n = backfill_pinfl_hashes(eng, force=changed)
+    if changed:
+        with maker() as db:
+            db.merge(AppMeta(key=PINFL_FP_KEY, value=fp))
             db.commit()
     return n
 

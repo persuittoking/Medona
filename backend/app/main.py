@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import alerts, auth, care_loop, children, dashboard, geo, llm, patients, visits
 from app.config import get_settings
-from app.db import Base, backfill_pinfl_hashes, engine, ensure_columns
+from app.db import Base, engine, ensure_columns, sync_pinfl_hashes
 from app.risk.ml import load_model
 from app.scheduler import schedule_prewarm, start_scheduler
 
@@ -16,11 +16,14 @@ log = logging.getLogger("onaradar")
 
 @contextlib.asynccontextmanager
 async def lifespan(app_: FastAPI):
+    get_settings().check_secrets()  # DEMO_MODE=false: refuse to start with weak / missing secrets
     Base.metadata.create_all(engine)
     added = ensure_columns(engine)  # older demo DB: add new nullable columns, never drop anything
     if added:
         log.warning("schema upgraded (added columns): %s", ", ".join(added))
-    backfill_pinfl_hashes(engine)
+    rehashed = sync_pinfl_hashes(engine)  # PINFL_HASH_SECRET changed -> recompute every stored hash
+    if rehashed:
+        log.warning("JShShIR lookup hashes (re)computed for %d patients", rehashed)
     load_model()  # warm the model + SHAP explainer
     app_.state.scheduler = start_scheduler()  # SLA escalation every 30 s
     if get_settings().llm_enabled and get_settings().llm_prewarm:

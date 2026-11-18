@@ -139,6 +139,28 @@ def latest_pregnancy_assessment(db: Session, patient: Patient) -> RiskAssessment
                       .order_by(RiskAssessment.id.desc()).limit(1)).first()
 
 
+def demo_summary_status(db: Session) -> dict:
+    """COUNTS only (admin health check): how many DEMO1-DEMO4 (+ demo children) latest assessments have a cached
+    summary, and from which source. No codes, no content."""
+    out = {"total": 0, "cached": 0, "ai": 0, "template": 0}
+    ras = []
+    for code in DEMO_CODES:
+        pat = db.scalars(select(Patient).where(Patient.code == code)).first()
+        ras.append(latest_pregnancy_assessment(db, pat) if pat else None)
+    for code in DEMO_CHILD_CODES:
+        nb = db.scalars(select(Newborn).where(Newborn.code == code)).first()
+        ras.append(latest_child_assessment(db, nb.id) if nb else None)
+    for ra in ras:
+        if ra is None:
+            continue
+        out["total"] += 1
+        cached = get_cached(db, ra.id)
+        if cached is not None:
+            out["cached"] += 1
+            out["ai" if cached.source == "ai" else "template"] += 1
+    return out
+
+
 def prewarm_demo_patients(gap_s: float = PREWARM_GAP_S) -> int:
     """Generate summaries for the DEMO1-DEMO4 cards, spaced `gap_s` apart. Returns how many were generated."""
     with SessionLocal() as db:

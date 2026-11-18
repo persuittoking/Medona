@@ -74,8 +74,10 @@ class Tenant:
             raise HTTPException(status.HTTP_404_NOT_FOUND, NOT_FOUND)
         return a
 
-    def lookup_by_pinfl(self, pinfl: str, request: Request | None = None) -> Patient:
-        """Exact-match JShShIR lookup for external result entry (minimum-necessary view, rate-limited, audited)."""
+    # ---- cross-polyclinic lookups: ONE hourly limit + hit/miss audit for every identifier type ----
+    def _lookup_guard(self, request: Request | None) -> str | None:
+        """Rate limit (EXTERNAL_LOOKUP_LIMIT_PER_HOUR per user) shared by JShShIR lookup and external entry by
+        JShShIR, pregnancy id, patient code, child id or child code. Returns the client ip for the audit row."""
         ip = request.client.host if request is not None and request.client else None
         since = utcnow() - timedelta(hours=1)
         recent = self.db.scalar(
@@ -88,25 +90,40 @@ class Tenant:
         if recent >= EXTERNAL_LOOKUP_LIMIT_PER_HOUR:
             raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
                                 "JShShIR qidiruv limiti tugadi (soatiga 30 ta). Birozdan so'ng qayta urinib ko'ring")
+        return ip
+
+    def _lookup_miss(self, ip: str | None, entity: str, by: str) -> HTTPException:
+        """Audit a miss (committed now: the request ends with 404) and return the 404 to raise."""
+        self.db.add(AuditLog(user_id=self.user.id, action="external_lookup_miss", entity=entity, entity_id=None,
+                             from_polyclinic_id=self.polyclinic_id, details=f"by={by}", ip=ip))
+        self.db.commit()
+        return HTTPException(status.HTTP_404_NOT_FOUND, NOT_FOUND)
+
+    def _lookup_hit(self, ip: str | None, entity: str, entity_id: int, to_pc: int | None, by: str) -> None:
+        self.db.add(AuditLog(
+            user_id=self.user.id, action="external_lookup", entity=entity, entity_id=entity_id,
+            from_polyclinic_id=self.polyclinic_id, to_polyclinic_id=to_pc,
+            details=f"from_polyclinic_id={self.polyclinic_id},to_polyclinic_id={to_pc},by={by}", ip=ip,
+        ))
+        self.db.commit()
+
+    def lookup_by_pinfl(self, pinfl: str, request: Request | None = None) -> Patient:
+        """Exact-match JShShIR lookup for external result entry (minimum-necessary view, rate-limited, audited)."""
+        ip = self._lookup_guard(request)
         cleaned = (pinfl or "").strip()
         pat = self.db.scalars(select(Patient).where(Patient.pinfl_hash == hash_pinfl(cleaned))).first() if cleaned else None
         if pat is None:
-            self.db.add(AuditLog(user_id=self.user.id, action="external_lookup_miss", entity="patient",
-                                 entity_id=None, from_polyclinic_id=self.polyclinic_id, ip=ip))
-            self.db.commit()
-            raise HTTPException(status.HTTP_404_NOT_FOUND, NOT_FOUND)
-        self.db.add(AuditLog(
-            user_id=self.user.id, action="external_lookup", entity="patient", entity_id=pat.id,
-            from_polyclinic_id=self.polyclinic_id, to_polyclinic_id=pat.polyclinic_id,
-            details=f"from_polyclinic_id={self.polyclinic_id},to_polyclinic_id={pat.polyclinic_id}", ip=ip,
-        ))
-        self.db.commit()
+            raise self._lookup_miss(ip, "patient", "pinfl")
+        self._lookup_hit(ip, "patient", pat.id, pat.polyclinic_id, "pinfl")
         return pat
 
     def resolve_external_pregnancy(self, *, pinfl: str | None = None, pregnancy_id: int | None = None,
-                                   patient_code: str | None = None) -> Pregnancy:
-        """Resolve an active pregnancy for external result entry (stored under the responsible polyclinic)."""
+                                   patient_code: str | None = None, request: Request | None = None) -> Pregnancy:
+        """Resolve an active pregnancy for external result entry (stored under the responsible polyclinic).
+        Every identifier type is rate-limited and audited (hit and miss) like the JShShIR lookup."""
+        ip = self._lookup_guard(request)
         pat: Patient | None = None
+        by = "pinfl" if pinfl else "patient_code" if patient_code else "pregnancy_id" if pregnancy_id is not None else "none"
         if pinfl:
             pat = self.db.scalars(select(Patient).where(Patient.pinfl_hash == hash_pinfl(pinfl.strip()))).first()
         elif patient_code:
@@ -114,18 +131,23 @@ class Tenant:
         elif pregnancy_id is not None:
             preg = self.db.get(Pregnancy, pregnancy_id)
             if preg is None or preg.status != "active":
-                raise HTTPException(status.HTTP_404_NOT_FOUND, NOT_FOUND)
+                raise self._lookup_miss(ip, "pregnancy", by)
+            self._lookup_hit(ip, "patient", preg.patient_id, preg.patient.polyclinic_id, by)
             return preg
         if pat is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, NOT_FOUND)
+            raise self._lookup_miss(ip, "patient", by)
+        self._lookup_hit(ip, "patient", pat.id, pat.polyclinic_id, by)
         active = [pr for pr in pat.pregnancies if pr.status == "active"]
         if not active:
             raise HTTPException(status.HTTP_409_CONFLICT, "Bu bemorda faol homiladorlik topilmadi")
         return sorted(active, key=lambda p: -p.id)[0]
 
     def resolve_external_newborn(self, *, pinfl: str | None = None, newborn_id: int | None = None,
-                                 child_code: str | None = None) -> Newborn:
-        """Resolve an active child (0-12m) for external check entry (stored under the responsible polyclinic)."""
+                                 child_code: str | None = None, request: Request | None = None) -> Newborn:
+        """Resolve an active child (0-12m) for external check entry (stored under the responsible polyclinic).
+        Every identifier type is rate-limited and audited (hit and miss) like the JShShIR lookup."""
+        ip = self._lookup_guard(request)
+        by = "newborn_id" if newborn_id is not None else "child_code" if child_code else "pinfl" if pinfl else "none"
         if newborn_id is not None:
             nb = self.db.get(Newborn, newborn_id)
         elif child_code:
@@ -137,7 +159,8 @@ class Tenant:
         else:
             nb = None
         if nb is None or nb.status != "active":
-            raise HTTPException(status.HTTP_404_NOT_FOUND, NOT_FOUND)
+            raise self._lookup_miss(ip, "newborn", by)
+        self._lookup_hit(ip, "newborn", nb.id, nb.polyclinic_id, by)
         return nb
 
 
